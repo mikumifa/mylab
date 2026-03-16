@@ -91,11 +91,21 @@ def run_executor(run_dir: Path, plan_id: str, model: str, full_auto: bool) -> Pa
     )
     append_jsonl(
         run_dir / "logs" / "agent4-runner.jsonl",
-        {"ts": utc_now(), "level": "INFO", "event": "executor_started", "plan_id": plan_id},
+        {
+            "ts": utc_now(),
+            "level": "INFO",
+            "event": "executor_started",
+            "plan_id": plan_id,
+        },
     )
     CodexRunner().run(spec)
     append_jsonl(
         run_dir / "logs" / "agent4-runner.jsonl",
-        {"ts": utc_now(), "level": "INFO", "event": "executor_finished", "plan_id": plan_id},
+        {
+            "ts": utc_now(),
+            "level": "INFO",
+            "event": "executor_finished",
+            "plan_id": plan_id,
+        },
     )
     return output_path

@@ -21,7 +21,12 @@ class GitManager:
         )
         append_jsonl(
             self.log_path,
-            {"ts": utc_now(), "event": "git_command", "args": args, "stdout": result.stdout.strip()},
+            {
+                "ts": utc_now(),
+                "event": "git_command",
+                "args": args,
+                "stdout": result.stdout.strip(),
+            },
         )
         return result.stdout.strip()
 

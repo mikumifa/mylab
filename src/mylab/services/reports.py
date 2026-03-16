@@ -67,6 +67,11 @@ def write_summary(
     write_text(summary_path, summary)
     append_jsonl(
         run_dir / "logs" / "summary-agent.jsonl",
-        {"ts": utc_now(), "level": "INFO", "event": "summary_written", "plan_id": plan_id},
+        {
+            "ts": utc_now(),
+            "level": "INFO",
+            "event": "summary_written",
+            "plan_id": plan_id,
+        },
     )
     return summary_path

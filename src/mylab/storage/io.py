@@ -14,7 +14,9 @@ def ensure_dir(path: Path) -> Path:
 
 
 def runs_root() -> Path:
-    return ensure_dir(Path(os.environ.get(RUNS_ENV_VAR, DEFAULT_RUNS_DIR)).expanduser().resolve())
+    return ensure_dir(
+        Path(os.environ.get(RUNS_ENV_VAR, DEFAULT_RUNS_DIR)).expanduser().resolve()
+    )
 
 
 def append_jsonl(path: Path, event: dict[str, Any]) -> None:
@@ -34,7 +36,9 @@ def read_text(path: Path) -> str:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     ensure_dir(path.parent)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    )
 
 
 def read_json(path: Path) -> dict[str, Any]:

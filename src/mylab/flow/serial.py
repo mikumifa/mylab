@@ -25,7 +25,9 @@ class SerialFlowRunner:
                 return task
         return None
 
-    def _append_task(self, queue: QueueState, kind: str, payload: dict[str, object]) -> None:
+    def _append_task(
+        self, queue: QueueState, kind: str, payload: dict[str, object]
+    ) -> None:
         queue.tasks.append(
             TaskRecord(
                 task_id=f"task-{len(queue.tasks) + 1:04d}",
@@ -42,14 +44,20 @@ class SerialFlowRunner:
             self._append_task(
                 queue,
                 "prepare_branch",
-                {"plan_id": manifest.latest_plan_id, "model": str(task.payload.get("model", "gpt-5-mini"))},
+                {
+                    "plan_id": manifest.latest_plan_id,
+                    "model": str(task.payload.get("model", "gpt-5-mini")),
+                },
             )
             return
         if task.kind == "prepare_branch":
             self._append_task(
                 queue,
                 "prepare_executor",
-                {"plan_id": str(task.payload["plan_id"]), "model": str(task.payload.get("model", "gpt-5-mini"))},
+                {
+                    "plan_id": str(task.payload["plan_id"]),
+                    "model": str(task.payload.get("model", "gpt-5-mini")),
+                },
             )
             return
         if task.kind == "prepare_executor":
@@ -72,9 +80,17 @@ class SerialFlowRunner:
                     "plan_id": plan_id,
                     "status": "completed",
                     "outcome": "Execution finished. Replace this placeholder with an evidence-based summary.",
-                    "evidence": [f"logs/{plan_id}.codex.events.jsonl", f"results/{plan_id}.codex.last.md"],
-                    "artifacts": [f"commands/{plan_id}.executor.sh", f"plans/{plan_id}.md"],
-                    "next_iteration": ["Inspect the result report and replace this placeholder summary."],
+                    "evidence": [
+                        f"logs/{plan_id}.codex.events.jsonl",
+                        f"results/{plan_id}.codex.last.md",
+                    ],
+                    "artifacts": [
+                        f"commands/{plan_id}.executor.sh",
+                        f"plans/{plan_id}.md",
+                    ],
+                    "next_iteration": [
+                        "Inspect the result report and replace this placeholder summary."
+                    ],
                 },
             )
             self._append_task(queue, "restore_branch", {})
@@ -95,7 +111,9 @@ class SerialFlowRunner:
                 )
             )
         if task.kind == "prepare_branch":
-            return ensure_run_branch(self.run_dir, manifest, str(task.payload["plan_id"]))
+            return ensure_run_branch(
+                self.run_dir, manifest, str(task.payload["plan_id"])
+            )
         if task.kind == "prepare_executor":
             return str(
                 prepare_executor(
@@ -124,7 +142,9 @@ class SerialFlowRunner:
                     outcome=str(task.payload.get("outcome", "Summary placeholder.")),
                     evidence=[str(item) for item in task.payload.get("evidence", [])],
                     artifacts=[str(item) for item in task.payload.get("artifacts", [])],
-                    next_iteration=[str(item) for item in task.payload.get("next_iteration", [])],
+                    next_iteration=[
+                        str(item) for item in task.payload.get("next_iteration", [])
+                    ],
                 )
             )
         if task.kind == "restore_branch":
@@ -148,12 +168,20 @@ class SerialFlowRunner:
                 task.status = "done"
                 task.finished_at = utc_now()
                 self._enqueue_followups(queue, task)
-                processed.append({"task_id": task.task_id, "kind": task.kind, "output": output})
+                processed.append(
+                    {"task_id": task.task_id, "kind": task.kind, "output": output}
+                )
             except Exception as exc:
                 task.status = "failed"
                 task.finished_at = utc_now()
                 task.error = str(exc)
-                processed.append({"task_id": task.task_id, "kind": task.kind, "output": f"ERROR: {exc}"})
+                processed.append(
+                    {
+                        "task_id": task.task_id,
+                        "kind": task.kind,
+                        "output": f"ERROR: {exc}",
+                    }
+                )
                 break
             remaining -= 1
         save_queue(self.run_dir, queue)

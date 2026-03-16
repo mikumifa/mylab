@@ -15,7 +15,10 @@ def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str
     current = git.current_branch()
     if not manifest.original_branch:
         manifest.original_branch = current
-    work_branch = manifest.work_branch or f"mylab/{slugify(manifest.run_id, max_length=24)}/{plan_id}"
+    work_branch = (
+        manifest.work_branch
+        or f"mylab/{slugify(manifest.run_id, max_length=24)}/{plan_id}"
+    )
     git.create_and_checkout_branch(work_branch, manifest.source_branch)
     manifest.work_branch = work_branch
     save_manifest(paths, manifest)

@@ -68,4 +68,6 @@ class QueueState:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "QueueState":
-        return cls(tasks=[TaskRecord.from_dict(item) for item in payload.get("tasks", [])])
+        return cls(
+            tasks=[TaskRecord.from_dict(item) for item in payload.get("tasks", [])]
+        )

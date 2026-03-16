@@ -49,7 +49,9 @@ def enqueue_initial_pipeline(run_dir: Path, model: str) -> None:
     enqueue_task(run_dir, "create_plan", {"model": model})
 
 
-def enqueue_iteration_pipeline(run_dir: Path, parent_plan_id: str, feedback: str, model: str) -> None:
+def enqueue_iteration_pipeline(
+    run_dir: Path, parent_plan_id: str, feedback: str, model: str
+) -> None:
     enqueue_task(
         run_dir,
         "iterate_plan",
@@ -87,7 +89,11 @@ def dispatch(run_dir: Path, task: TaskRecord, allow_exec: bool) -> str:
         plan_id = str(task.payload.get("plan_id") or manifest.latest_plan_id)
         if not plan_id:
             raise ValueError("no latest plan available for executor preparation")
-        return str(prepare_executor(run_dir, plan_id, model=str(task.payload.get("model", "gpt-5-mini"))))
+        return str(
+            prepare_executor(
+                run_dir, plan_id, model=str(task.payload.get("model", "gpt-5-mini"))
+            )
+        )
     if task.kind == "run_executor":
         if not allow_exec:
             raise RuntimeError("execution task encountered but allow_exec is false")
@@ -109,7 +115,9 @@ def dispatch(run_dir: Path, task: TaskRecord, allow_exec: bool) -> str:
                 outcome=str(task.payload.get("outcome", "Summary placeholder.")),
                 evidence=[str(item) for item in task.payload.get("evidence", [])],
                 artifacts=[str(item) for item in task.payload.get("artifacts", [])],
-                next_iteration=[str(item) for item in task.payload.get("next_iteration", [])],
+                next_iteration=[
+                    str(item) for item in task.payload.get("next_iteration", [])
+                ],
             )
         )
     raise ValueError(f"unsupported task kind: {task.kind}")
@@ -147,7 +155,9 @@ def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> Non
                 status="pending",
                 created_at=utc_now(),
                 payload={
-                    "plan_id": str(task.payload.get("plan_id") or manifest.latest_plan_id),
+                    "plan_id": str(
+                        task.payload.get("plan_id") or manifest.latest_plan_id
+                    ),
                     "model": str(task.payload.get("model", "gpt-5-mini")),
                     "full_auto": False,
                 },
@@ -166,9 +176,17 @@ def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> Non
                     "plan_id": plan_id,
                     "status": "completed",
                     "outcome": "Execution finished. Replace this placeholder with an evidence-based summary.",
-                    "evidence": [f"logs/{plan_id}.codex.events.jsonl", f"results/{plan_id}.codex.last.md"],
-                    "artifacts": [f"commands/{plan_id}.executor.sh", f"plans/{plan_id}.md"],
-                    "next_iteration": ["Inspect the result report and replace this placeholder summary."],
+                    "evidence": [
+                        f"logs/{plan_id}.codex.events.jsonl",
+                        f"results/{plan_id}.codex.last.md",
+                    ],
+                    "artifacts": [
+                        f"commands/{plan_id}.executor.sh",
+                        f"plans/{plan_id}.md",
+                    ],
+                    "next_iteration": [
+                        "Inspect the result report and replace this placeholder summary."
+                    ],
                 },
             )
         )
@@ -191,10 +209,14 @@ def poll_run(run_dir: Path, limit: int, allow_exec: bool) -> list[dict[str, str]
             output = dispatch(run_dir, task, allow_exec=allow_exec)
             complete(task)
             enqueue_followups(run_dir, queue, task)
-            processed.append({"task_id": task.task_id, "kind": task.kind, "output": output})
+            processed.append(
+                {"task_id": task.task_id, "kind": task.kind, "output": output}
+            )
         except Exception as exc:
             fail(task, exc)
-            processed.append({"task_id": task.task_id, "kind": task.kind, "output": f"ERROR: {exc}"})
+            processed.append(
+                {"task_id": task.task_id, "kind": task.kind, "output": f"ERROR: {exc}"}
+            )
             break
         remaining -= 1
     save_queue(run_dir, queue)

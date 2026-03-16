@@ -27,7 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init_run_cmd = subparsers.add_parser("init-run", help="Bootstrap a run and enqueue the initial pipeline.")
+    init_run_cmd = subparsers.add_parser(
+        "init-run", help="Bootstrap a run and enqueue the initial pipeline."
+    )
     init_run_cmd.add_argument("--repo", required=True, type=Path)
     init_run_group = init_run_cmd.add_mutually_exclusive_group(required=True)
     init_run_group.add_argument("--goal")
@@ -41,12 +43,16 @@ def build_parser() -> argparse.ArgumentParser:
     poll_cmd.add_argument("--limit", type=int, default=3)
     poll_cmd.add_argument("--allow-exec", action="store_true")
 
-    flow_cmd = subparsers.add_parser("run-flow", help="Run the serial main flow until blocked or complete.")
+    flow_cmd = subparsers.add_parser(
+        "run-flow", help="Run the serial main flow until blocked or complete."
+    )
     flow_cmd.add_argument("--run-dir", required=True, type=Path)
     flow_cmd.add_argument("--limit", type=int, default=20)
     flow_cmd.add_argument("--allow-exec", action="store_true")
 
-    create_cmd = subparsers.add_parser("create-plan", help="Create the first structured plan.")
+    create_cmd = subparsers.add_parser(
+        "create-plan", help="Create the first structured plan."
+    )
     create_cmd.add_argument("--run-dir", type=Path)
     create_cmd.add_argument("--repo", type=Path)
     create_group = create_cmd.add_mutually_exclusive_group(required=False)
@@ -55,33 +61,45 @@ def build_parser() -> argparse.ArgumentParser:
     create_cmd.add_argument("--source-branch")
     create_cmd.add_argument("--run-id")
 
-    iterate_cmd = subparsers.add_parser("iterate-plan", help="Create the next plan from prior results.")
+    iterate_cmd = subparsers.add_parser(
+        "iterate-plan", help="Create the next plan from prior results."
+    )
     iterate_cmd.add_argument("--run-dir", required=True, type=Path)
     iterate_cmd.add_argument("--feedback", required=True)
     iterate_cmd.add_argument("--parent-plan", required=True)
 
-    queue_iter_cmd = subparsers.add_parser("queue-iteration", help="Enqueue a plan iteration pipeline.")
+    queue_iter_cmd = subparsers.add_parser(
+        "queue-iteration", help="Enqueue a plan iteration pipeline."
+    )
     queue_iter_cmd.add_argument("--run-dir", required=True, type=Path)
     queue_iter_cmd.add_argument("--parent-plan", required=True)
     queue_iter_cmd.add_argument("--feedback", required=True)
     queue_iter_cmd.add_argument("--model", default="gpt-5-mini")
 
-    format_cmd = subparsers.add_parser("format-repo", help="Emit a repo formatting audit.")
+    format_cmd = subparsers.add_parser(
+        "format-repo", help="Emit a repo formatting audit."
+    )
     format_cmd.add_argument("--repo", type=Path)
     format_cmd.add_argument("--run-dir", type=Path)
 
-    prepare_cmd = subparsers.add_parser("prepare-executor", help="Generate executor prompts and commands.")
+    prepare_cmd = subparsers.add_parser(
+        "prepare-executor", help="Generate executor prompts and commands."
+    )
     prepare_cmd.add_argument("--run-dir", required=True, type=Path)
     prepare_cmd.add_argument("--plan-id")
     prepare_cmd.add_argument("--model", default="gpt-5-mini")
 
-    run_cmd = subparsers.add_parser("run-executor", help="Run the prepared executor agent via codex.")
+    run_cmd = subparsers.add_parser(
+        "run-executor", help="Run the prepared executor agent via codex."
+    )
     run_cmd.add_argument("--run-dir", required=True, type=Path)
     run_cmd.add_argument("--plan-id")
     run_cmd.add_argument("--model", default="gpt-5-mini")
     run_cmd.add_argument("--full-auto", action="store_true")
 
-    summary_cmd = subparsers.add_parser("write-summary", help="Write a strict summary file.")
+    summary_cmd = subparsers.add_parser(
+        "write-summary", help="Write a strict summary file."
+    )
     summary_cmd.add_argument("--run-dir", required=True, type=Path)
     summary_cmd.add_argument("--plan-id", required=True)
     summary_cmd.add_argument("--status", required=True)
@@ -113,18 +131,18 @@ def cmd_init_run(args: argparse.Namespace) -> int:
 
 
 def cmd_poll_run(args: argparse.Namespace) -> int:
-    outputs = SerialFlowRunner(args.run_dir.expanduser().resolve(), allow_exec=args.allow_exec).run_until_blocked(
-        limit=args.limit
-    )
+    outputs = SerialFlowRunner(
+        args.run_dir.expanduser().resolve(), allow_exec=args.allow_exec
+    ).run_until_blocked(limit=args.limit)
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
     return 0
 
 
 def cmd_run_flow(args: argparse.Namespace) -> int:
-    outputs = SerialFlowRunner(args.run_dir.expanduser().resolve(), allow_exec=args.allow_exec).run_until_blocked(
-        limit=args.limit
-    )
+    outputs = SerialFlowRunner(
+        args.run_dir.expanduser().resolve(), allow_exec=args.allow_exec
+    ).run_until_blocked(limit=args.limit)
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
     return 0
@@ -137,7 +155,9 @@ def ensure_manifest_or_bootstrap(args: argparse.Namespace):
         manifest = load_manifest(run_dir)
         return paths, manifest
     if not args.repo or not (args.goal or args.lab_md):
-        raise ValueError("either --run-dir or (--repo and one of --goal/--lab-md) is required")
+        raise ValueError(
+            "either --run-dir or (--repo and one of --goal/--lab-md) is required"
+        )
     repo_path = args.repo.expanduser().resolve()
     lab_md = args.lab_md.expanduser().resolve() if args.lab_md else None
     goal_text = lab_input_text(args.goal, lab_md)

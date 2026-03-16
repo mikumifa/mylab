@@ -52,8 +52,15 @@ class CodexRunner:
         return script_path
 
     def run(self, spec: CodexExecSpec) -> Path:
-        with spec.prompt_path.open("r", encoding="utf-8") as prompt_handle, spec.event_path.open(
-            "w", encoding="utf-8"
-        ) as log_handle:
-            subprocess.run(spec.command(), check=True, stdin=prompt_handle, stdout=log_handle, stderr=subprocess.STDOUT)
+        with (
+            spec.prompt_path.open("r", encoding="utf-8") as prompt_handle,
+            spec.event_path.open("w", encoding="utf-8") as log_handle,
+        ):
+            subprocess.run(
+                spec.command(),
+                check=True,
+                stdin=prompt_handle,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+            )
         return spec.output_path

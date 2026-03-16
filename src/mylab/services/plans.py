@@ -129,7 +129,12 @@ def bootstrap_run(
     save_manifest(paths, manifest)
     append_jsonl(
         paths.logs / "run-lifecycle.jsonl",
-        {"ts": utc_now(), "event": "run_bootstrapped", "run_id": run_id, "repo_path": str(repo_path)},
+        {
+            "ts": utc_now(),
+            "event": "run_bootstrapped",
+            "run_id": run_id,
+            "repo_path": str(repo_path),
+        },
     )
     return manifest
 
@@ -177,7 +182,9 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
     return plan_path
 
 
-def create_iterated_plan(paths: RunPaths, manifest: RunManifest, parent_plan_id: str, feedback: str) -> Path:
+def create_iterated_plan(
+    paths: RunPaths, manifest: RunManifest, parent_plan_id: str, feedback: str
+) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     plan_path = paths.plans / f"{plan_id}.md"
