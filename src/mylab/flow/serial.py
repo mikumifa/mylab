@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from mylab.domain import QueueState, TaskRecord
+from mylab.logging import logger
 from mylab.orchestrator.queue import load_queue, save_queue
 from mylab.services.executor import prepare_executor, run_executor
 from mylab.services.formatting import format_for_manifest
@@ -152,6 +153,7 @@ class SerialFlowRunner:
         raise ValueError(f"unsupported task kind: {task.kind}")
 
     def run_until_blocked(self, limit: int) -> list[dict[str, str]]:
+        logger.info("Starting serial flow for {} with limit={}", self.run_dir, limit)
         queue = load_queue(self.run_dir)
         processed: list[dict[str, str]] = []
         remaining = limit
@@ -160,10 +162,12 @@ class SerialFlowRunner:
             if task is None:
                 break
             if task.kind == "run_executor" and not self.allow_exec:
+                logger.info("Serial flow blocked on run_executor because allow_exec is false")
                 break
             task.status = "running"
             task.started_at = utc_now()
             try:
+                logger.info("Running task {} ({})", task.task_id, task.kind)
                 output = self._dispatch(task)
                 task.status = "done"
                 task.finished_at = utc_now()
@@ -172,6 +176,7 @@ class SerialFlowRunner:
                     {"task_id": task.task_id, "kind": task.kind, "output": output}
                 )
             except Exception as exc:
+                logger.exception("Task {} ({}) failed", task.task_id, task.kind)
                 task.status = "failed"
                 task.finished_at = utc_now()
                 task.error = str(exc)
@@ -185,4 +190,5 @@ class SerialFlowRunner:
                 break
             remaining -= 1
         save_queue(self.run_dir, queue)
+        logger.info("Serial flow finished after processing {} task(s)", len(processed))
         return processed

@@ -1,0 +1,2 @@
+[console_scripts]
+mylab = mylab.cli:main

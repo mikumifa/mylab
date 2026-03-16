@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from mylab.config import PLAN_HEADINGS, RUNS_ENV_VAR
 from mylab.domain import RunManifest, RunPaths
+from mylab.logging import logger
+from mylab.services.repo_ignore import ensure_run_dir_ignored
 from mylab.storage import append_jsonl, read_text, write_text
 from mylab.storage.runs import save_manifest
 from mylab.utils import detect_git_branch, slugify, utc_now
 
 
 def make_run_id(goal_text: str) -> str:
-    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     return f"{stamp}_{slugify(goal_text)}"
 
 
@@ -116,6 +118,8 @@ def bootstrap_run(
     input_file_name: str = "goal.txt",
 ) -> RunManifest:
     resolved_branch = source_branch or detect_git_branch(repo_path)
+    logger.info("Bootstrapping run {} for repo {}", run_id, repo_path)
+    ignored_added = ensure_run_dir_ignored(repo_path, paths.root)
     goal_file = paths.inputs / input_file_name
     write_text(goal_file, goal_text)
     manifest = RunManifest(
@@ -134,6 +138,8 @@ def bootstrap_run(
             "event": "run_bootstrapped",
             "run_id": run_id,
             "repo_path": str(repo_path),
+            "run_dir": str(paths.root),
+            "gitignore_updated": ignored_added,
         },
     )
     return manifest
@@ -142,6 +148,7 @@ def bootstrap_run(
 def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
+    logger.info("Creating initial plan {}", plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
     prompt_path = paths.prompts / f"{plan_id}.planner.prompt.md"
     content = render_plan_markdown(
@@ -187,6 +194,7 @@ def create_iterated_plan(
 ) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
+    logger.info("Creating iterated plan {} from {}", plan_id, parent_plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
     parent_plan_path = paths.plans / f"{parent_plan_id}.md"
     if not parent_plan_path.exists():

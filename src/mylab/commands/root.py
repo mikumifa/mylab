@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from mylab.flow import SerialFlowRunner
+from mylab.logging import configure_logging, logger
 from mylab.orchestrator import enqueue_initial_pipeline, enqueue_iteration_pipeline
 from mylab.services import (
     bootstrap_run,
@@ -116,33 +117,40 @@ def cmd_init_run(args: argparse.Namespace) -> int:
     goal_text = lab_input_text(args.goal, lab_md)
     run_id = args.run_id or make_run_id(goal_text)
     paths = init_run_dirs(runs_root() / run_id)
+    configure_logging(paths.logs)
     input_name = "lab.md" if args.lab_md else "goal.txt"
+    input_text = args.goal
+    if input_text is None:
+        if lab_md is None:
+            raise ValueError("lab.md path is required when --goal is omitted")
+        input_text = lab_md.read_text(encoding="utf-8")
     bootstrap_run(
         repo_path=repo_path,
-        goal_text=goal_text if args.goal else lab_md.read_text(encoding="utf-8"),
+        goal_text=input_text,
         run_id=run_id,
         paths=paths,
         source_branch=args.source_branch,
         input_file_name=input_name,
     )
     enqueue_initial_pipeline(paths.root, args.model)
+    logger.info("Initialized run at {}", paths.root)
     print(paths.root)
     return 0
 
 
 def cmd_poll_run(args: argparse.Namespace) -> int:
-    outputs = SerialFlowRunner(
-        args.run_dir.expanduser().resolve(), allow_exec=args.allow_exec
-    ).run_until_blocked(limit=args.limit)
+    run_dir = args.run_dir.expanduser().resolve()
+    configure_logging(run_dir / "logs")
+    outputs = SerialFlowRunner(run_dir, allow_exec=args.allow_exec).run_until_blocked(limit=args.limit)
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
     return 0
 
 
 def cmd_run_flow(args: argparse.Namespace) -> int:
-    outputs = SerialFlowRunner(
-        args.run_dir.expanduser().resolve(), allow_exec=args.allow_exec
-    ).run_until_blocked(limit=args.limit)
+    run_dir = args.run_dir.expanduser().resolve()
+    configure_logging(run_dir / "logs")
+    outputs = SerialFlowRunner(run_dir, allow_exec=args.allow_exec).run_until_blocked(limit=args.limit)
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
     return 0
@@ -163,9 +171,14 @@ def ensure_manifest_or_bootstrap(args: argparse.Namespace):
     goal_text = lab_input_text(args.goal, lab_md)
     run_id = args.run_id or make_run_id(goal_text)
     paths = init_run_dirs(runs_root() / run_id)
+    input_text = args.goal
+    if input_text is None:
+        if lab_md is None:
+            raise ValueError("lab.md path is required when --goal is omitted")
+        input_text = lab_md.read_text(encoding="utf-8")
     manifest = bootstrap_run(
         repo_path=repo_path,
-        goal_text=goal_text if args.goal else lab_md.read_text(encoding="utf-8"),
+        goal_text=input_text,
         run_id=run_id,
         paths=paths,
         source_branch=args.source_branch,
@@ -176,6 +189,7 @@ def ensure_manifest_or_bootstrap(args: argparse.Namespace):
 
 def cmd_create_plan(args: argparse.Namespace) -> int:
     paths, manifest = ensure_manifest_or_bootstrap(args)
+    configure_logging(paths.logs)
     print(create_initial_plan(paths, manifest))
     return 0
 
@@ -183,6 +197,7 @@ def cmd_create_plan(args: argparse.Namespace) -> int:
 def cmd_iterate_plan(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.expanduser().resolve()
     paths = init_run_dirs(run_dir)
+    configure_logging(paths.logs)
     manifest = load_manifest(run_dir)
     print(create_iterated_plan(paths, manifest, args.parent_plan, args.feedback))
     return 0
@@ -190,6 +205,7 @@ def cmd_iterate_plan(args: argparse.Namespace) -> int:
 
 def cmd_queue_iteration(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.expanduser().resolve()
+    configure_logging(run_dir / "logs")
     enqueue_iteration_pipeline(run_dir, args.parent_plan, args.feedback, args.model)
     print(run_dir / "queue" / "pipeline.json")
     return 0
@@ -198,6 +214,7 @@ def cmd_queue_iteration(args: argparse.Namespace) -> int:
 def cmd_format_repo(args: argparse.Namespace) -> int:
     if args.run_dir:
         run_dir = args.run_dir.expanduser().resolve()
+        configure_logging(run_dir / "logs")
         manifest = load_manifest(run_dir)
         print(format_repo_report(Path(manifest.repo_path), run_dir))
         return 0
@@ -205,12 +222,14 @@ def cmd_format_repo(args: argparse.Namespace) -> int:
         raise ValueError("--repo is required when --run-dir is omitted")
     run_dir = runs_root() / f"format_{args.repo.expanduser().resolve().name}"
     paths = init_run_dirs(run_dir)
+    configure_logging(paths.logs)
     print(format_repo_report(args.repo.expanduser().resolve(), paths.root))
     return 0
 
 
 def cmd_prepare_executor(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.expanduser().resolve()
+    configure_logging(run_dir / "logs")
     manifest = load_manifest(run_dir)
     plan_id = args.plan_id or manifest.latest_plan_id
     if not plan_id:
@@ -221,6 +240,7 @@ def cmd_prepare_executor(args: argparse.Namespace) -> int:
 
 def cmd_run_executor(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.expanduser().resolve()
+    configure_logging(run_dir / "logs")
     manifest = load_manifest(run_dir)
     plan_id = args.plan_id or manifest.latest_plan_id
     if not plan_id:
@@ -230,6 +250,7 @@ def cmd_run_executor(args: argparse.Namespace) -> int:
 
 
 def cmd_write_summary(args: argparse.Namespace) -> int:
+    configure_logging(args.run_dir.expanduser().resolve() / "logs")
     print(
         write_summary(
             args.run_dir.expanduser().resolve(),

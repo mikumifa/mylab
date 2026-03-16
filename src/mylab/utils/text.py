@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import re
 import shlex
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 
 def utc_now() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def slugify(value: str, max_length: int = 40) -> str:

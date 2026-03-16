@@ -4,6 +4,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from mylab.logging import logger
 from mylab.utils import shell_join
 
 
@@ -44,6 +45,7 @@ class CodexExecSpec:
 
 class CodexRunner:
     def prepare_shell_script(self, spec: CodexExecSpec, script_path: Path) -> Path:
+        logger.debug("Writing Codex shell script to {}", script_path)
         script_path.write_text(
             "#!/usr/bin/env bash\nset -euo pipefail\n" + spec.shell_command() + "\n",
             encoding="utf-8",
@@ -52,6 +54,7 @@ class CodexRunner:
         return script_path
 
     def run(self, spec: CodexExecSpec) -> Path:
+        logger.info("Executing Codex command in {}", spec.repo_path)
         with (
             spec.prompt_path.open("r", encoding="utf-8") as prompt_handle,
             spec.event_path.open("w", encoding="utf-8") as log_handle,

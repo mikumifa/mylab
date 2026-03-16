@@ -4,6 +4,7 @@ from pathlib import Path
 
 from mylab.domain import RunManifest
 from mylab.gittools import GitManager
+from mylab.logging import logger
 from mylab.storage import append_jsonl
 from mylab.storage.runs import init_run_dirs, save_manifest
 from mylab.utils import slugify, utc_now
@@ -19,6 +20,7 @@ def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str
         manifest.work_branch
         or f"mylab/{slugify(manifest.run_id, max_length=24)}/{plan_id}"
     )
+    logger.info("Preparing work branch {} for plan {}", work_branch, plan_id)
     git.create_and_checkout_branch(work_branch, manifest.source_branch)
     manifest.work_branch = work_branch
     save_manifest(paths, manifest)
@@ -40,6 +42,7 @@ def restore_original_branch(run_dir: Path, manifest: RunManifest) -> str:
     paths = init_run_dirs(run_dir)
     git = GitManager(Path(manifest.repo_path), paths.logs / "git-lifecycle.jsonl")
     target = manifest.original_branch or manifest.source_branch
+    logger.info("Restoring original branch {}", target)
     git.checkout(target)
     append_jsonl(
         paths.logs / "git-lifecycle.jsonl",

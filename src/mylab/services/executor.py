@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from mylab.codex import CodexExecSpec, CodexRunner
+from mylab.logging import logger
 from mylab.storage import append_jsonl, write_text
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
@@ -60,6 +61,7 @@ def prepare_executor(run_dir: Path, plan_id: str, model: str) -> Path:
         event_path=run_dir / "logs" / f"{plan_id}.codex.events.jsonl",
         model=model,
     )
+    logger.info("Preparing Codex executor for {} in {}", plan_id, run_dir)
     CodexRunner().prepare_shell_script(spec, command_path)
     append_jsonl(
         run_dir / "logs" / "agent3-preparer.jsonl",
@@ -89,6 +91,7 @@ def run_executor(run_dir: Path, plan_id: str, model: str, full_auto: bool) -> Pa
         model=model,
         full_auto=full_auto,
     )
+    logger.info("Running Codex executor for {} on repo {}", plan_id, manifest.repo_path)
     append_jsonl(
         run_dir / "logs" / "agent4-runner.jsonl",
         {

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from mylab.logging import logger
 from mylab.storage import append_jsonl, write_text
 from mylab.storage.runs import load_manifest
 from mylab.utils import list_tracked_files, utc_now
 
 
 def format_repo_report(repo_path: Path, run_dir: Path) -> Path:
+    logger.info("Generating format audit for {}", repo_path)
     report = run_dir / "results" / "format-audit.md"
     suspicious = [
         item

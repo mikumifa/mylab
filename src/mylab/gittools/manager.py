@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from mylab.logging import logger
 from mylab.storage import append_jsonl
 from mylab.utils import utc_now
 
@@ -13,6 +14,7 @@ class GitManager:
         self.log_path = log_path
 
     def _run(self, args: list[str]) -> str:
+        logger.debug("Running git command in {}: {}", self.repo_path, " ".join(args))
         result = subprocess.run(
             ["git", "-C", str(self.repo_path), *args],
             check=True,
@@ -37,9 +39,11 @@ class GitManager:
         return self._run(["rev-parse", "HEAD"])
 
     def checkout(self, branch: str) -> None:
+        logger.info("Checking out git branch {}", branch)
         self._run(["checkout", branch])
 
     def create_and_checkout_branch(self, branch: str, source_branch: str) -> None:
+        logger.info("Creating work branch {} from {}", branch, source_branch)
         self._run(["checkout", source_branch])
         self._run(["checkout", "-B", branch, source_branch])
 

@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Codex-based experiment orchestration CLI for research labs"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "loguru>=0.7.2",
+]
 
 [project.scripts]
 mylab = "mylab.cli:main"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from mylab.config import SUMMARY_HEADINGS
+from mylab.logging import logger
 from mylab.storage import append_jsonl, write_text
 from mylab.utils import utc_now
 
@@ -51,6 +52,7 @@ def write_summary(
     artifacts: list[str],
     next_iteration: list[str],
 ) -> Path:
+    logger.info("Writing summary for {}", plan_id)
     summary = render_summary_markdown(
         run_id=run_dir.name,
         plan_id=plan_id,
