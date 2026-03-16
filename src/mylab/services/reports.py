@@ -4,8 +4,16 @@ from pathlib import Path
 
 from mylab.config import SUMMARY_HEADINGS
 from mylab.logging import logger
+from mylab.services.experience import update_repo_experience
 from mylab.storage import append_jsonl, write_text
 from mylab.utils import utc_now
+
+
+def should_update_experience(outcome: str, next_iteration: list[str]) -> bool:
+    normalized_outcome = outcome.strip().lower()
+    if "placeholder" in normalized_outcome:
+        return False
+    return not any("placeholder" in item.strip().lower() for item in next_iteration)
 
 
 def render_summary_markdown(
@@ -76,4 +84,14 @@ def write_summary(
             "plan_id": plan_id,
         },
     )
+    if should_update_experience(outcome, next_iteration):
+        update_repo_experience(
+            run_dir=run_dir,
+            plan_id=plan_id,
+            status=status,
+            outcome=outcome,
+            evidence=evidence,
+            artifacts=artifacts,
+            next_iteration=next_iteration,
+        )
     return summary_path

@@ -19,7 +19,7 @@ src/mylab/
 
 ## 设计目标
 
-- 输入一个实验目标，可以直接通过 `--goal` 传入，或者通过 `--lab-md` 指定实验说明文件。
+- 输入一个实验目标，可以直接通过 `--goal` 传入文本，或者把 `--goal` 指向一个文件；也兼容 `--lab-md`。
 - 输入一个被 Git 追踪的论文实验仓库路径。
 - 由多个职责明确的 agent 分工完成：
   - `format-agent`：先检查仓库是否支持可配置输出目录、日志保留和中间结果落盘。
@@ -66,18 +66,13 @@ $MYLAB_RUNS_DIR/<run_id>/
 create-plan -> prepare-executor -> run-executor -> write-summary
 ```
 
-现在改成 run 内部维护任务队列：
+现在改成 `run` 直接驱动内部任务队列：
 
 ```text
-init-run
-  -> queue: format_repo
-  -> queue: create_plan
-  -> queue: prepare_executor
-
-poll-run
-  -> 每次推进若干 pending task
-  -> 默认停在真正执行前
-  -> 显式加 --allow-exec 才会跑 run_executor
+run
+  -> 如果没有现成 run-dir，则自动初始化 run
+  -> 自动入队 format_repo / create_plan / prepare_branch / prepare_executor / run_executor ...
+  -> 直接执行，不需要单独 allow-exec
 ```
 
 这样后续扩展新 agent、新 stage、新检查项时，不需要继续膨胀 CLI 参数层。
@@ -113,45 +108,42 @@ pip install -e .
 
 ## 使用示例
 
-先初始化一个 run，并自动入队首轮流程：
+最常用方式是直接运行：
 
 ```bash
-mylab init-run \
+mylab run \
   --repo /path/to/paper-repo \
   --goal "复现论文 A 的主实验，并验证把视觉分支替换成更轻量编码器后的效果"
 ```
 
-轮询推进到准备执行为止：
+如果 `goal` 已经写在文件里：
 
 ```bash
-mylab poll-run \
-  --run-dir .mylab_runs/20260316_120000_example \
-  --limit 3
-```
-
-如果需要真的启动执行：
-
-```bash
-mylab poll-run \
-  --run-dir .mylab_runs/20260316_120000_example \
-  --limit 1 \
-  --allow-exec
+mylab run \
+  --repo /path/to/paper-repo \
+  --goal /path/to/goal.md
 ```
 
 如果已有 `lab.md`：
 
 ```bash
-mylab init-run \
+mylab run \
   --repo /path/to/paper-repo \
   --lab-md /path/to/lab.md
 ```
 
-也保留了直接命令：
+如果你已经有一个已有 run 目录，也可以直接续跑：
 
 ```bash
-mylab create-plan \
-  --repo /path/to/paper-repo \
-  --goal "先只生成 plan，不走队列"
+mylab run \
+  --run-dir .mylab_runs/20260316_120000_example
+```
+
+低层命令都放到 `tool` 下面，只建议调试时用：
+
+```bash
+mylab tool init-run --repo /path/to/paper-repo --goal "只初始化，不直接执行"
+mylab tool prepare-executor --run-dir .mylab_runs/20260316_120000_example
 ```
 
 基于已有结果，把下一轮计划加入队列：
@@ -167,7 +159,7 @@ mylab queue-iteration \
 仍然可以手工迭代生成：
 
 ```bash
-mylab iterate-plan \
+mylab tool iterate-plan \
   --run-dir .mylab_runs/20260316_120000_example \
   --parent-plan plan-001 \
   --feedback "补充下一轮具体目标"
@@ -176,7 +168,7 @@ mylab iterate-plan \
 为执行 agent 准备 prompt 和命令：
 
 ```bash
-mylab prepare-executor \
+mylab tool prepare-executor \
   --run-dir .mylab_runs/20260316_120000_example \
   --plan-id plan-001 \
   --model gpt-5-mini
@@ -185,7 +177,7 @@ mylab prepare-executor \
 写总结：
 
 ```bash
-mylab write-summary \
+mylab tool write-summary \
   --run-dir .mylab_runs/20260316_120000_example \
   --plan-id plan-001 \
   --status success \

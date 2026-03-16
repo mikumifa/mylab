@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from mylab.domain import QueueState, TaskRecord
-from mylab.logging import logger
+from mylab.logging import emit_progress, logger
 from mylab.orchestrator.queue import load_queue, save_queue
 from mylab.services.executor import prepare_executor, run_executor
 from mylab.services.formatting import format_for_manifest
@@ -26,6 +26,58 @@ class SerialFlowRunner:
                 return task
         return None
 
+    def _task_label(self, task: TaskRecord) -> str:
+        labels = {
+            "format_repo": "repo audit",
+            "create_plan": "initial plan",
+            "iterate_plan": "plan iteration",
+            "prepare_branch": "git branch setup",
+            "prepare_executor": "executor preparation",
+            "run_executor": "codex execution",
+            "write_summary": "summary writing",
+            "restore_branch": "branch restore",
+        }
+        return labels.get(task.kind, task.kind)
+
+    def _task_context(self, task: TaskRecord) -> str:
+        parts: list[str] = []
+        plan_id = task.payload.get("plan_id")
+        if plan_id:
+            parts.append(f"plan={plan_id}")
+        parent_plan = task.payload.get("parent_plan_id")
+        if parent_plan:
+            parts.append(f"parent={parent_plan}")
+        model = self._payload_model(task)
+        if model:
+            parts.append(f"model={model}")
+        feedback = task.payload.get("feedback")
+        if isinstance(feedback, str) and feedback.strip():
+            brief = feedback.strip().replace("\n", " ")
+            parts.append(f"feedback={brief[:80]}")
+        return ", ".join(parts)
+
+    def _log_run_overview(self, queue: QueueState) -> None:
+        manifest = load_manifest(self.run_dir)
+        pending = sum(1 for task in queue.tasks if task.status == "pending")
+        done = sum(1 for task in queue.tasks if task.status == "done")
+        failed = sum(1 for task in queue.tasks if task.status == "failed")
+        logger.info(
+            "Run overview | run={} repo={} source_branch={} latest_plan={} queued(pending={}, done={}, failed={})",
+            manifest.run_id,
+            manifest.repo_path,
+            manifest.source_branch,
+            manifest.latest_plan_id or "-",
+            pending,
+            done,
+            failed,
+        )
+        emit_progress(
+            "[run]",
+            f"{manifest.run_id}",
+            f"repo={manifest.repo_path} branch={manifest.source_branch} plan={manifest.latest_plan_id or '-'} pending={pending} done={done} failed={failed}",
+            color="blue",
+        )
+
     def _append_task(
         self, queue: QueueState, kind: str, payload: dict[str, object]
     ) -> None:
@@ -39,6 +91,12 @@ class SerialFlowRunner:
             )
         )
 
+    def _payload_model(self, task: TaskRecord) -> str | None:
+        value = task.payload.get("model")
+        if isinstance(value, str) and value.strip():
+            return value
+        return None
+
     def _enqueue_followups(self, queue: QueueState, task: TaskRecord) -> None:
         manifest = load_manifest(self.run_dir)
         if task.kind in {"create_plan", "iterate_plan"}:
@@ -47,7 +105,7 @@ class SerialFlowRunner:
                 "prepare_branch",
                 {
                     "plan_id": manifest.latest_plan_id,
-                    "model": str(task.payload.get("model", "gpt-5-mini")),
+                    "model": self._payload_model(task),
                 },
             )
             return
@@ -57,7 +115,7 @@ class SerialFlowRunner:
                 "prepare_executor",
                 {
                     "plan_id": str(task.payload["plan_id"]),
-                    "model": str(task.payload.get("model", "gpt-5-mini")),
+                    "model": self._payload_model(task),
                 },
             )
             return
@@ -67,7 +125,7 @@ class SerialFlowRunner:
                 "run_executor",
                 {
                     "plan_id": str(task.payload["plan_id"]),
-                    "model": str(task.payload.get("model", "gpt-5-mini")),
+                    "model": self._payload_model(task),
                     "full_auto": False,
                 },
             )
@@ -120,7 +178,7 @@ class SerialFlowRunner:
                 prepare_executor(
                     self.run_dir,
                     str(task.payload["plan_id"]),
-                    model=str(task.payload.get("model", "gpt-5-mini")),
+                    model=self._payload_model(task),
                 )
             )
         if task.kind == "run_executor":
@@ -130,7 +188,7 @@ class SerialFlowRunner:
                 run_executor(
                     self.run_dir,
                     str(task.payload["plan_id"]),
-                    model=str(task.payload.get("model", "gpt-5-mini")),
+                    model=self._payload_model(task),
                     full_auto=bool(task.payload.get("full_auto", False)),
                 )
             )
@@ -155,6 +213,7 @@ class SerialFlowRunner:
     def run_until_blocked(self, limit: int) -> list[dict[str, str]]:
         logger.info("Starting serial flow for {} with limit={}", self.run_dir, limit)
         queue = load_queue(self.run_dir)
+        self._log_run_overview(queue)
         processed: list[dict[str, str]] = []
         remaining = limit
         while remaining > 0:
@@ -162,24 +221,75 @@ class SerialFlowRunner:
             if task is None:
                 break
             if task.kind == "run_executor" and not self.allow_exec:
-                logger.info("Serial flow blocked on run_executor because allow_exec is false")
+                logger.info(
+                    "Serial flow blocked on {} ({})",
+                    task.task_id,
+                    self._task_label(task),
+                )
+                emit_progress(
+                    "[wait]",
+                    f"{task.task_id} {self._task_label(task)}",
+                    "execution gate is closed",
+                    color="yellow",
+                )
                 break
             task.status = "running"
             task.started_at = utc_now()
             try:
-                logger.info("Running task {} ({})", task.task_id, task.kind)
+                context = self._task_context(task)
+                if context:
+                    logger.info(
+                        "Task start | {} | {} | {}",
+                        task.task_id,
+                        self._task_label(task),
+                        context,
+                    )
+                    emit_progress(
+                        "[task]",
+                        f"{task.task_id} {self._task_label(task)}",
+                        context,
+                        color="cyan",
+                    )
+                else:
+                    logger.info("Task start | {} | {}", task.task_id, self._task_label(task))
+                    emit_progress(
+                        "[task]",
+                        f"{task.task_id} {self._task_label(task)}",
+                        color="cyan",
+                    )
                 output = self._dispatch(task)
                 task.status = "done"
                 task.finished_at = utc_now()
                 self._enqueue_followups(queue, task)
+                logger.info("Task done  | {} | output={}", task.task_id, output)
+                emit_progress(
+                    "[done]",
+                    f"{task.task_id} {self._task_label(task)}",
+                    str(output),
+                    color="green",
+                )
                 processed.append(
                     {"task_id": task.task_id, "kind": task.kind, "output": output}
                 )
             except Exception as exc:
-                logger.exception("Task {} ({}) failed", task.task_id, task.kind)
+                logger.exception("Task failed | {} | {}", task.task_id, self._task_label(task))
+                emit_progress(
+                    "[fail]",
+                    f"{task.task_id} {self._task_label(task)}",
+                    str(exc),
+                    color="red",
+                )
+                if task.kind != "restore_branch":
+                    try:
+                        manifest = load_manifest(self.run_dir)
+                        if manifest.work_branch and manifest.original_branch:
+                            restore_original_branch(self.run_dir, manifest)
+                    except Exception:
+                        logger.exception("Failed to restore branch after task failure")
                 task.status = "failed"
                 task.finished_at = utc_now()
                 task.error = str(exc)
+                logger.info("Task error | {} | {}", task.task_id, str(exc))
                 processed.append(
                     {
                         "task_id": task.task_id,
@@ -191,4 +301,10 @@ class SerialFlowRunner:
             remaining -= 1
         save_queue(self.run_dir, queue)
         logger.info("Serial flow finished after processing {} task(s)", len(processed))
+        emit_progress(
+            "[flow]",
+            "serial flow finished",
+            f"processed={len(processed)}",
+            color="blue",
+        )
         return processed

@@ -3,10 +3,12 @@ pyproject.toml
 src/mylab/__init__.py
 src/mylab/cli.py
 src/mylab/config.py
+src/mylab/logging.py
 src/mylab.egg-info/PKG-INFO
 src/mylab.egg-info/SOURCES.txt
 src/mylab.egg-info/dependency_links.txt
 src/mylab.egg-info/entry_points.txt
+src/mylab.egg-info/requires.txt
 src/mylab.egg-info/top_level.txt
 src/mylab/codex/__init__.py
 src/mylab/codex/client.py
@@ -25,6 +27,7 @@ src/mylab/services/executor.py
 src/mylab/services/formatting.py
 src/mylab/services/git_lifecycle.py
 src/mylab/services/plans.py
+src/mylab/services/repo_ignore.py
 src/mylab/services/reports.py
 src/mylab/storage/__init__.py
 src/mylab/storage/io.py

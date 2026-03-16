@@ -1,4 +1,5 @@
 from .executor import prepare_executor, run_executor
+from .experience import load_repo_experience, repo_experience_path, update_repo_experience
 from .formatting import format_repo_report
 from .plans import (
     bootstrap_run,
@@ -19,10 +20,13 @@ __all__ = [
     "format_repo_report",
     "heuristic_questions",
     "heuristic_steps",
+    "load_repo_experience",
     "make_run_id",
     "prepare_executor",
+    "repo_experience_path",
     "render_summary_markdown",
     "run_executor",
+    "update_repo_experience",
     "validate_summary_markdown",
     "write_summary",
 ]

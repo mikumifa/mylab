@@ -6,10 +6,11 @@ from pathlib import Path
 from mylab.config import PLAN_HEADINGS, RUNS_ENV_VAR
 from mylab.domain import RunManifest, RunPaths
 from mylab.logging import logger
+from mylab.services.experience import load_repo_experience
 from mylab.services.repo_ignore import ensure_run_dir_ignored
 from mylab.storage import append_jsonl, read_text, write_text
 from mylab.storage.runs import save_manifest
-from mylab.utils import detect_git_branch, slugify, utc_now
+from mylab.utils import detect_source_branch, slugify, utc_now
 
 
 def make_run_id(goal_text: str) -> str:
@@ -19,6 +20,9 @@ def make_run_id(goal_text: str) -> str:
 
 def lab_input_text(goal: str | None, lab_md: Path | None) -> str:
     if goal:
+        goal_path = Path(goal).expanduser()
+        if goal_path.exists() and goal_path.is_file():
+            return read_text(goal_path).strip()
         return goal.strip()
     if lab_md:
         return read_text(lab_md).strip()
@@ -117,7 +121,7 @@ def bootstrap_run(
     source_branch: str | None = None,
     input_file_name: str = "goal.txt",
 ) -> RunManifest:
-    resolved_branch = source_branch or detect_git_branch(repo_path)
+    resolved_branch = source_branch or detect_source_branch(repo_path)
     logger.info("Bootstrapping run {} for repo {}", run_id, repo_path)
     ignored_added = ensure_run_dir_ignored(repo_path, paths.root)
     goal_file = paths.inputs / input_file_name
@@ -147,6 +151,7 @@ def bootstrap_run(
 
 def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
+    inherited_experience = load_repo_experience(paths.root)
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     logger.info("Creating initial plan {}", plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
@@ -175,6 +180,10 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
                 f"Repository: {manifest.repo_path}",
                 f"Source branch: {manifest.source_branch}",
                 f"Write the final result back to: {plan_path}",
+                "If a repository experience memory is present, inherit its proven lessons and avoid repeating known failures.",
+                "",
+                "Inherited repository experience:",
+                inherited_experience or "(none yet)",
                 "",
                 content,
             ]
@@ -193,6 +202,7 @@ def create_iterated_plan(
     paths: RunPaths, manifest: RunManifest, parent_plan_id: str, feedback: str
 ) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
+    inherited_experience = load_repo_experience(paths.root)
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     logger.info("Creating iterated plan {} from {}", plan_id, parent_plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
@@ -219,6 +229,31 @@ def create_iterated_plan(
     if errors:
         raise ValueError("; ".join(errors))
     write_text(plan_path, content)
+    write_text(
+        paths.prompts / f"{plan_id}.iterator.prompt.md",
+        "\n".join(
+            [
+                f"You are planner agent 2 for run {manifest.run_id}.",
+                "Create the next plan without changing the required markdown headings.",
+                f"Repository: {manifest.repo_path}",
+                f"Source branch: {manifest.source_branch}",
+                f"Parent plan: {parent_plan_path}",
+                f"Write the final result back to: {plan_path}",
+                f"Feedback: {feedback}",
+                "",
+                "Inherited repository experience:",
+                inherited_experience or "(none yet)",
+                "",
+                "Parent plan content:",
+                "",
+                read_text(parent_plan_path),
+                "",
+                "Draft plan content:",
+                "",
+                content,
+            ]
+        ),
+    )
     manifest.latest_plan_id = plan_id
     manifest.current_iteration += 1
     save_manifest(paths, manifest)

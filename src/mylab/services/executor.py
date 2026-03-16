@@ -4,6 +4,7 @@ from pathlib import Path
 
 from mylab.codex import CodexExecSpec, CodexRunner
 from mylab.logging import logger
+from mylab.services.experience import load_repo_experience
 from mylab.storage import append_jsonl, write_text
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
@@ -11,6 +12,7 @@ from mylab.utils import utc_now
 
 def executor_prompt(run_dir: Path, plan_id: str) -> str:
     manifest = load_manifest(run_dir)
+    inherited_experience = load_repo_experience(run_dir)
     plan_path = run_dir / "plans" / f"{plan_id}.md"
     result_path = run_dir / "results" / f"{plan_id}.result.md"
     summary_path = run_dir / "summaries" / f"{plan_id}.summary.md"
@@ -31,6 +33,10 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             "2. Preserve raw command output and intermediate artifacts.",
             "3. If execution is long-running, create or update runnable scripts before starting.",
             "4. Keep the final report tied to concrete file paths and observed results.",
+            "5. Reuse proven lessons from the repository experience memory when relevant, and avoid known bad paths.",
+            "",
+            "Inherited repository experience:",
+            inherited_experience or "(none yet)",
             "",
             "After completion, write a markdown result report and a concise summary.",
             "",
@@ -43,7 +49,7 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
     )
 
 
-def prepare_executor(run_dir: Path, plan_id: str, model: str) -> Path:
+def prepare_executor(run_dir: Path, plan_id: str, model: str | None) -> Path:
     manifest = load_manifest(run_dir)
     plan_path = run_dir / "plans" / f"{plan_id}.md"
     if not plan_path.exists():
@@ -77,7 +83,7 @@ def prepare_executor(run_dir: Path, plan_id: str, model: str) -> Path:
     return command_path
 
 
-def run_executor(run_dir: Path, plan_id: str, model: str, full_auto: bool) -> Path:
+def run_executor(run_dir: Path, plan_id: str, model: str | None, full_auto: bool) -> Path:
     manifest = load_manifest(run_dir)
     prompt_path = run_dir / "prompts" / f"{plan_id}.executor.prompt.md"
     output_path = run_dir / "results" / f"{plan_id}.codex.last.md"

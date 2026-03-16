@@ -4,6 +4,7 @@ Version: 0.1.0
 Summary: Codex-based experiment orchestration CLI for research labs
 Requires-Python: >=3.13
 Description-Content-Type: text/markdown
+Requires-Dist: loguru>=0.7.2
 
 # mylab
 
@@ -36,6 +37,7 @@ src/mylab/
   - `agent4-runner`：调用 `codex exec` 执行 plan。
   - `summary-agent`：生成标准化总结。
 - 所有中间结果统一保存在环境变量 `MYLAB_RUNS_DIR` 指定的位置；未设置时默认为当前目录下的 `.mylab_runs/`。
+- 如果 run 目录落在论文实验仓库内部，程序会自动把对应路径写入该仓库的 `.gitignore`，避免实验产物被 Git 跟踪。
 
 ## 目录约定
 

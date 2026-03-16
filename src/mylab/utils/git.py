@@ -10,6 +10,25 @@ def detect_git_branch(repo_path: Path) -> str:
     return result.stdout.strip()
 
 
+def branch_exists(repo_path: Path, branch: str) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(repo_path), "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def detect_source_branch(repo_path: Path) -> str:
+    current = detect_git_branch(repo_path)
+    if not current.startswith("mylab/"):
+        return current
+    for candidate in ("main", "master"):
+        if branch_exists(repo_path, candidate):
+            return candidate
+    return current
+
+
 def list_tracked_files(repo_path: Path) -> list[str]:
     result = subprocess.run(
         ["git", "-C", str(repo_path), "ls-files"],
