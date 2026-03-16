@@ -1,0 +1,20 @@
+[project]
+name = "mylab"
+version = "0.1.0"
+description = "Codex-based experiment orchestration CLI for research labs"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+mylab = "mylab.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

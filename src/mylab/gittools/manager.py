@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+from mylab.storage import append_jsonl
+from mylab.utils import utc_now
+
+
+class GitManager:
+    def __init__(self, repo_path: Path, log_path: Path) -> None:
+        self.repo_path = repo_path
+        self.log_path = log_path
+
+    def _run(self, args: list[str]) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(self.repo_path), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        append_jsonl(
+            self.log_path,
+            {"ts": utc_now(), "event": "git_command", "args": args, "stdout": result.stdout.strip()},
+        )
+        return result.stdout.strip()
+
+    def current_branch(self) -> str:
+        return self._run(["rev-parse", "--abbrev-ref", "HEAD"])
+
+    def head_commit(self) -> str:
+        return self._run(["rev-parse", "HEAD"])
+
+    def checkout(self, branch: str) -> None:
+        self._run(["checkout", branch])
+
+    def create_and_checkout_branch(self, branch: str, source_branch: str) -> None:
+        self._run(["checkout", source_branch])
+        self._run(["checkout", "-B", branch, source_branch])
+
+    def status_porcelain(self) -> str:
+        return self._run(["status", "--short"])
