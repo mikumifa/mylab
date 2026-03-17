@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mylab.domain import RunManifest
 from mylab.services.reports import write_summary
-from mylab.storage.runs import init_run_dirs, save_manifest
+from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
 
 
 class ReportsTest(unittest.TestCase):
@@ -93,6 +93,53 @@ class ReportsTest(unittest.TestCase):
         )
         self.assertIn("results/plan-002.codex.last.md", content)
         self.assertNotIn("Replace this placeholder", content)
+
+    def test_write_summary_includes_git_delivery_metadata(self) -> None:
+        manifest = load_manifest(self.paths.root)
+        manifest.goal_language = "zh"
+        manifest.work_branch = "mylab/run-001/plan-001"
+        manifest.latest_work_commit = "abc1234"
+        save_manifest(self.paths, manifest)
+        (self.paths.results / "plan-003.git.md").write_text(
+            "# Git Delivery\n- work_branch: mylab/run-001/plan-001\n- head_commit: abc1234\n",
+            encoding="utf-8",
+        )
+
+        summary_path = write_summary(
+            self.paths.root,
+            "plan-003",
+            "completed",
+            "Execution finished. Replace this placeholder with an evidence-based summary.",
+            [f"logs/plan-003.codex.events.jsonl"],
+            [f"commands/plan-003.executor.sh"],
+            ["Inspect the result report and replace this placeholder summary."],
+        )
+
+        content = summary_path.read_text(encoding="utf-8")
+        self.assertIn("- goal_language: zh", content)
+        self.assertIn("- work_branch: mylab/run-001/plan-001", content)
+        self.assertIn("- work_commit: abc1234", content)
+        self.assertIn("results/plan-003.git.md", content)
+        self.assertIn("git:mylab/run-001/plan-001@abc1234", content)
+
+    def test_write_summary_uses_goal_language_for_missing_report(self) -> None:
+        manifest = load_manifest(self.paths.root)
+        manifest.goal_language = "zh"
+        save_manifest(self.paths, manifest)
+
+        summary_path = write_summary(
+            self.paths.root,
+            "plan-004",
+            "completed",
+            "Execution finished. Replace this placeholder with an evidence-based summary.",
+            [f"logs/plan-004.codex.events.jsonl"],
+            [f"commands/plan-004.executor.sh"],
+            ["Inspect the result report and replace this placeholder summary."],
+        )
+
+        content = summary_path.read_text(encoding="utf-8")
+        self.assertIn("执行已完成，但没有找到结果报告。", content)
+        self.assertIn("打开 executor 输出并补写结构化结果报告。", content)
 
 
 if __name__ == "__main__":

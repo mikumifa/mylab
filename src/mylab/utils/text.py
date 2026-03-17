@@ -5,6 +5,18 @@ import shlex
 from datetime import datetime, timezone
 
 
+def detect_preferred_language(text: str) -> str:
+    cjk_count = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
+    ascii_letters = sum(1 for char in text if char.isascii() and char.isalpha())
+    if cjk_count and cjk_count >= max(3, ascii_letters // 4):
+        return "zh"
+    return "en"
+
+
+def describe_language(language: str) -> str:
+    return "Chinese" if language == "zh" else "English"
+
+
 def utc_now() -> str:
     return (
         datetime.now(timezone.utc)

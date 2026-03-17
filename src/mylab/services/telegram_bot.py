@@ -20,6 +20,9 @@ from mylab.logging import logger
 from mylab.storage import append_jsonl, ensure_dir, read_json, write_json, write_text
 from mylab.utils import utc_now
 
+STEP_SCOPE = "step"
+RUN_SCOPE = "run"
+
 
 def _read_config(config_path: Path | None = None) -> dict[str, object]:
     target = config_path or CONFIG_FILE
@@ -280,36 +283,60 @@ def _sanitize_filename(name: str) -> str:
 
 
 def load_feedback_context(limit: int | None = None) -> str:
+    return render_feedback_context(limit=limit, scopes={STEP_SCOPE, RUN_SCOPE})
+
+
+def _record_scope(record: dict[str, object]) -> str:
+    scope = record.get("scope")
+    if scope in {STEP_SCOPE, RUN_SCOPE}:
+        return str(scope)
+    return RUN_SCOPE if record.get("kind") == "document" else STEP_SCOPE
+
+
+def load_persistent_feedback_context(limit: int | None = None) -> str:
+    return render_feedback_context(limit=limit, scopes={RUN_SCOPE})
+
+
+def render_feedback_context(
+    limit: int | None = None,
+    scopes: set[str] | None = None,
+) -> str:
     if not TELEGRAM_INBOX_FILE.exists():
         return ""
     lines = TELEGRAM_INBOX_FILE.read_text(encoding="utf-8").splitlines()
     records = [json.loads(line) for line in lines if line.strip()]
     useful = [item for item in records if item.get("kind") in {"text", "document"}]
+    if scopes is not None:
+        useful = [item for item in useful if _record_scope(item) in scopes]
     if limit is not None:
         useful = useful[-limit:]
     snippets = []
     for item in useful:
+        scope = _record_scope(item)
         if item["kind"] == "text":
             snippets.append(
-                f"- {item['ts']} chat={item['chat_id']} text={str(item.get('text', '')).strip()}"
+                f"- {item['ts']} scope={scope} chat={item['chat_id']} text={str(item.get('text', '')).strip()}"
             )
         else:
             snippets.append(
-                f"- {item['ts']} chat={item['chat_id']} file={item.get('stored_path', '-')}"
+                f"- {item['ts']} scope={scope} chat={item['chat_id']} file={item.get('stored_path', '-')}"
             )
     return "\n".join(snippets)
 
 
-def load_feedback_records() -> list[dict[str, object]]:
+def load_feedback_records(scopes: set[str] | None = None) -> list[dict[str, object]]:
     if not TELEGRAM_INBOX_FILE.exists():
         return []
     lines = TELEGRAM_INBOX_FILE.read_text(encoding="utf-8").splitlines()
     records = [json.loads(line) for line in lines if line.strip()]
-    return [item for item in records if item.get("kind") in {"text", "document"}]
+    useful = [item for item in records if item.get("kind") in {"text", "document"}]
+    if scopes is not None:
+        useful = [item for item in useful if _record_scope(item) in scopes]
+    return useful
 
 
 def consume_feedback_since(cursor: int) -> tuple[str | None, int]:
-    records = load_feedback_records()
+    records = load_feedback_records(scopes={STEP_SCOPE})
     useful = records[max(cursor, 0) :]
     if not useful:
         return None, len(records)
@@ -396,7 +423,27 @@ class TelegramBotClient:
             or chat_id in self.settings.allowed_chat_ids
         )
 
-    def _handle_command(self, chat_id: int, text: str) -> None:
+    def _save_text_feedback(
+        self, chat_id: int, text: str, message_id: int, *, scope: str
+    ) -> None:
+        self._record_inbox(
+            {
+                "ts": utc_now(),
+                "kind": "text",
+                "scope": scope,
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+            }
+        )
+
+    def _handle_help(self, chat_id: int) -> None:
+        self.send_message(
+            chat_id,
+            "Supported commands: /test, /on, /off, /step <text>, /run <text>",
+        )
+
+    def _handle_command(self, chat_id: int, text: str, message_id: int) -> None:
         lowered = text.strip().lower()
         if lowered == "/test":
             self.send_message(chat_id, "mylab telegram bot ok.")
@@ -425,19 +472,39 @@ class TelegramBotClient:
                 {"ts": utc_now(), "kind": "command", "chat_id": chat_id, "text": "/off"}
             )
             return
-        self.send_message(chat_id, "Supported commands: /test, /on, /off")
+        if lowered == "/help":
+            self._handle_help(chat_id)
+            return
+        if text.startswith("/step "):
+            payload = text[6:].strip()
+            if not payload:
+                self.send_message(chat_id, "Usage: /step <instruction>")
+                return
+            self._save_text_feedback(chat_id, payload, message_id, scope=STEP_SCOPE)
+            self.send_message(
+                chat_id,
+                "Step feedback saved. It will be injected into the next iteration only.",
+            )
+            return
+        if text.startswith("/run "):
+            payload = text[5:].strip()
+            if not payload:
+                self.send_message(chat_id, "Usage: /run <guidance>")
+                return
+            self._save_text_feedback(chat_id, payload, message_id, scope=RUN_SCOPE)
+            self.send_message(
+                chat_id,
+                "Run guidance saved. It will be carried into future iterations.",
+            )
+            return
+        self._handle_help(chat_id)
 
     def _handle_text(self, chat_id: int, text: str, message_id: int) -> None:
-        self._record_inbox(
-            {
-                "ts": utc_now(),
-                "kind": "text",
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "text": text,
-            }
+        self._save_text_feedback(chat_id, text, message_id, scope=STEP_SCOPE)
+        self.send_message(
+            chat_id,
+            "Feedback saved for the next iteration. Use /run <text> for persistent run guidance.",
         )
-        self.send_message(chat_id, "Feedback saved for the next iteration.")
 
     def _handle_document(
         self, chat_id: int, document: dict[str, object], message_id: int
@@ -458,6 +525,7 @@ class TelegramBotClient:
             {
                 "ts": utc_now(),
                 "kind": "document",
+                "scope": RUN_SCOPE,
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "telegram_file_path": file_path,
@@ -490,7 +558,7 @@ class TelegramBotClient:
         text = message.get("text")
         message_id = int(message.get("message_id", 0))
         if isinstance(text, str) and text.strip().startswith("/"):
-            self._handle_command(chat_id, text)
+            self._handle_command(chat_id, text, message_id)
         elif isinstance(text, str) and text.strip():
             self._handle_text(chat_id, text, message_id)
         else:
@@ -539,6 +607,11 @@ def write_sample_config(path: Path = CONFIG_FILE) -> Path:
             'urls = ["tgram://<bot_token>/<chat_id>"]',
             '# config_path = "/path/to/apprise.yaml"',
             '# tag = "mylab"',
+            "",
+            "# Telegram usage:",
+            "# /step <text> -> only the next iteration",
+            "# /run <text>  -> persistent guidance for the whole run",
+            "# /on | /off   -> toggle notifications",
         ]
     )
     write_text(path, content)

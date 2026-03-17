@@ -74,8 +74,12 @@ def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str
         or f"mylab/{slugify(manifest.run_id, max_length=24)}/{plan_id}"
     )
     logger.info("Preparing work branch {} for plan {}", work_branch, plan_id)
-    git.create_and_checkout_branch(work_branch, manifest.source_branch)
+    if manifest.work_branch and git.branch_exists(work_branch):
+        git.checkout(work_branch)
+    else:
+        git.create_and_checkout_branch(work_branch, manifest.source_branch)
     manifest.work_branch = work_branch
+    manifest.latest_work_commit = git.head_commit()
     save_manifest(paths, manifest)
     append_jsonl(
         paths.logs / "git-lifecycle.jsonl",
@@ -89,6 +93,54 @@ def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str
         },
     )
     return work_branch
+
+
+def commit_iteration_changes(run_dir: Path, manifest: RunManifest, plan_id: str) -> Path:
+    paths = init_run_dirs(run_dir)
+    git = GitManager(Path(manifest.repo_path), paths.logs / "git-lifecycle.jsonl")
+    branch = manifest.work_branch or git.current_branch()
+    if git.current_branch() != branch:
+        git.checkout(branch)
+    status = git.status_porcelain().strip()
+    committed = False
+    if status:
+        git.add("-A")
+        head_commit = git.commit(f"mylab: deliver {plan_id}")
+        committed = True
+    else:
+        head_commit = git.head_commit()
+    manifest.work_branch = branch
+    manifest.latest_work_commit = head_commit
+    save_manifest(paths, manifest)
+    report_path = paths.results / f"{plan_id}.git.md"
+    report_path.write_text(
+        "\n".join(
+            [
+                "# Git Delivery",
+                f"- plan_id: {plan_id}",
+                f"- work_branch: {branch}",
+                f"- head_commit: {head_commit}",
+                f"- committed_new_changes: {'yes' if committed else 'no'}",
+                "",
+                "## Git Status Before Commit",
+                status or "(clean)",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    append_jsonl(
+        paths.logs / "git-lifecycle.jsonl",
+        {
+            "ts": utc_now(),
+            "event": "iteration_git_delivered",
+            "plan_id": plan_id,
+            "work_branch": branch,
+            "head_commit": head_commit,
+            "committed_new_changes": committed,
+        },
+    )
+    return report_path
 
 
 def restore_original_branch(run_dir: Path, manifest: RunManifest) -> str:

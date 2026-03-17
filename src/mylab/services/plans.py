@@ -9,10 +9,20 @@ from mylab.logging import logger
 from mylab.services.notifications import NotificationSettings
 from mylab.services.git_lifecycle import prepare_repo_for_run
 from mylab.services.assets import load_repo_asset, upsert_plan_index_record
-from mylab.services.telegram_bot import load_feedback_context, load_telegram_settings
+from mylab.services.telegram_bot import (
+    load_feedback_context,
+    load_persistent_feedback_context,
+    load_telegram_settings,
+)
 from mylab.storage import append_jsonl, read_text, write_text
 from mylab.storage.runs import init_run_dirs, save_manifest
-from mylab.utils import detect_source_branch, slugify, utc_now
+from mylab.utils import (
+    describe_language,
+    detect_preferred_language,
+    detect_source_branch,
+    slugify,
+    utc_now,
+)
 
 
 def make_run_id(goal_text: str) -> str:
@@ -148,6 +158,7 @@ def bootstrap_run(
         source_branch=resolved_branch,
         goal_file=str(goal_file),
         runs_env_var=RUNS_ENV_VAR,
+        goal_language=detect_preferred_language(goal_text),
         original_branch=original_branch,
         original_head_commit=original_head_commit,
         notify_urls=list((notifications or NotificationSettings(urls=[])).urls),
@@ -173,9 +184,13 @@ def bootstrap_run(
 def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
     inherited_asset = load_repo_asset(paths.root)
+    persistent_feedback = load_persistent_feedback_context(
+        load_telegram_settings().feedback_context_limit
+    )
     feedback_context = load_feedback_context(
         load_telegram_settings().feedback_context_limit
     )
+    output_language = describe_language(manifest.goal_language)
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     logger.info("Creating initial plan {}", plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
@@ -207,9 +222,13 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
                 "If a repository shared asset is present, inherit its stable notes and avoid repeating known failures.",
                 "Do not weaken the experiment by silently shrinking epoch/step counts; preserve the intended training budget unless the repo already specifies a different valid default.",
                 "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and what minimum budget will still be executed.",
+                f"Write user-facing planning text in {output_language} to match the original goal language.",
                 "",
                 "Repository shared asset:",
                 inherited_asset or "(none yet)",
+                "",
+                "Persistent run guidance from Telegram:",
+                persistent_feedback or "(none yet)",
                 "",
                 "Training budget guardrails:",
                 *training_budget_rule_lines(),
@@ -243,9 +262,13 @@ def create_iterated_plan(
 ) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
     inherited_asset = load_repo_asset(paths.root)
+    persistent_feedback = load_persistent_feedback_context(
+        load_telegram_settings().feedback_context_limit
+    )
     feedback_context = load_feedback_context(
         load_telegram_settings().feedback_context_limit
     )
+    output_language = describe_language(manifest.goal_language)
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     logger.info("Creating iterated plan {} from {}", plan_id, parent_plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
@@ -285,9 +308,13 @@ def create_iterated_plan(
                 f"Feedback: {feedback}",
                 "Do not weaken the experiment by silently shrinking epoch/step counts; preserve the intended training budget unless the repo already specifies a different valid default.",
                 "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and what minimum budget will still be executed.",
+                f"Write user-facing planning text in {output_language} to match the original goal language.",
                 "",
                 "Repository shared asset:",
                 inherited_asset or "(none yet)",
+                "",
+                "Persistent run guidance from Telegram:",
+                persistent_feedback or "(none yet)",
                 "",
                 "Training budget guardrails:",
                 *training_budget_rule_lines(),

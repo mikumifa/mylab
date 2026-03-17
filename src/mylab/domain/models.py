@@ -26,12 +26,14 @@ class RunManifest:
     source_branch: str
     goal_file: str
     runs_env_var: str
+    goal_language: str = "en"
     status: str = "active"
     current_iteration: int = 1
     latest_plan_id: str | None = None
     original_branch: str | None = None
     original_head_commit: str | None = None
     work_branch: str | None = None
+    latest_work_commit: str | None = None
     notify_urls: list[str] = field(default_factory=list)
     notify_config_path: str | None = None
     notify_tag: str | None = None

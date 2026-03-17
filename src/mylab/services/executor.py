@@ -7,15 +7,22 @@ from mylab.logging import logger
 from mylab.services.assets import load_repo_asset, repo_asset_path
 from mylab.services.notifications import NotificationClient, load_notification_settings
 from mylab.services.plans import training_budget_rule_lines
-from mylab.services.telegram_bot import load_feedback_context, load_telegram_settings
+from mylab.services.telegram_bot import (
+    load_feedback_context,
+    load_persistent_feedback_context,
+    load_telegram_settings,
+)
 from mylab.storage import append_jsonl, write_text
 from mylab.storage.runs import load_manifest
-from mylab.utils import utc_now
+from mylab.utils import describe_language, utc_now
 
 
 def executor_prompt(run_dir: Path, plan_id: str) -> str:
     manifest = load_manifest(run_dir)
     inherited_asset = load_repo_asset(run_dir)
+    persistent_feedback = load_persistent_feedback_context(
+        load_telegram_settings().feedback_context_limit
+    )
     feedback_context = load_feedback_context(
         load_telegram_settings().feedback_context_limit
     )
@@ -44,9 +51,13 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             "5. Reuse the repository shared asset when relevant, update it with durable repo knowledge, and avoid known bad paths.",
             "6. Do not silently shrink the intended training budget. If the experiment is supposed to run 500 epochs/steps, do not arbitrarily run 200 instead.",
             "7. Early stopping, reduced search, or proxy runs are allowed only when justified by repo logic or explicit plan rationale, and the result report must state both the planned budget and the actual stop point.",
+            f"8. Write the result report and concise user-facing summary in {describe_language(manifest.goal_language)} to match the original goal language.",
             "",
             "Repository shared asset:",
             inherited_asset or "(none yet)",
+            "",
+            "Persistent run guidance from Telegram:",
+            persistent_feedback or "(none yet)",
             "",
             "Training budget guardrails:",
             *training_budget_rule_lines(),

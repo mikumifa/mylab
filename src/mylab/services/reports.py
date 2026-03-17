@@ -6,6 +6,7 @@ from mylab.config import SUMMARY_HEADINGS
 from mylab.logging import logger
 from mylab.services.assets import update_repo_asset, upsert_plan_index_record
 from mylab.storage import append_jsonl, read_text, write_text
+from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
 
@@ -25,12 +26,24 @@ def render_summary_markdown(
     evidence: list[str],
     artifacts: list[str],
     next_iteration: list[str],
+    goal_language: str | None = None,
+    work_branch: str | None = None,
+    work_commit: str | None = None,
 ) -> str:
+    metadata_lines = [
+        f"- run_id: {run_id}",
+        f"- plan_id: {plan_id}",
+        f"- status: {status}",
+        f"- generated_at: {utc_now()}",
+    ]
+    if goal_language:
+        metadata_lines.append(f"- goal_language: {goal_language}")
+    if work_branch:
+        metadata_lines.append(f"- work_branch: {work_branch}")
+    if work_commit:
+        metadata_lines.append(f"- work_commit: {work_commit}")
     return f"""# Summary Metadata
-- run_id: {run_id}
-- plan_id: {plan_id}
-- status: {status}
-- generated_at: {utc_now()}
+{chr(10).join(metadata_lines)}
 
 # Outcome
 {outcome.strip()}
@@ -83,28 +96,46 @@ def _extract_list_items(section: str) -> list[str]:
 def summarize_execution_outputs(
     run_dir: Path,
     plan_id: str,
+    *,
+    goal_language: str,
 ) -> tuple[str, list[str], list[str], list[str]]:
+    if goal_language == "zh":
+        missing_report = "执行已完成，但没有找到结果报告。请直接检查 executor 日志。"
+        empty_report = "执行已完成，但结果报告为空。"
+        write_report = "打开 executor 输出并补写结构化结果报告。"
+        rerun_report = "重新执行 executor，或检查结果报告为什么为空。"
+        review_next = "检查结果报告，并决定下一步最小且可辩护的改动。"
+    else:
+        missing_report = (
+            "Execution finished, but no result report was found. Inspect the executor logs directly."
+        )
+        empty_report = "Execution finished, but the result report is empty."
+        write_report = "Open the executor output and write a structured result report."
+        rerun_report = "Re-run the executor or inspect why the result report was empty."
+        review_next = (
+            "Review the result report and decide the next smallest defensible change."
+        )
     result_path = run_dir / "results" / f"{plan_id}.result.md"
     codex_last_path = run_dir / "results" / f"{plan_id}.codex.last.md"
     source_path = result_path if result_path.exists() else codex_last_path
     if not source_path.exists():
         return (
-            "Execution finished, but no result report was found. Inspect the executor logs directly.",
+            missing_report,
             [f"logs/{plan_id}.codex.events.jsonl"],
             [f"commands/{plan_id}.executor.sh"],
-            ["Open the executor output and write a structured result report."],
+            [write_report],
         )
 
     content = read_text(source_path).strip()
     if not content:
         return (
-            f"Execution finished, but {source_path.name} is empty.",
+            f"{empty_report.rstrip('.')} ({source_path.name}).",
             [
                 f"logs/{plan_id}.codex.events.jsonl",
                 str(source_path.relative_to(run_dir)),
             ],
             [f"commands/{plan_id}.executor.sh"],
-            ["Re-run the executor or inspect why the result report was empty."],
+            [rerun_report],
         )
 
     outcome = _extract_markdown_section(content, "# Outcome")
@@ -135,9 +166,7 @@ def summarize_execution_outputs(
         _extract_markdown_section(content, "# Next Iteration")
     )
     if not next_iteration:
-        next_iteration = [
-            "Review the result report and decide the next smallest defensible change."
-        ]
+        next_iteration = [review_next]
 
     return outcome, evidence, artifacts, next_iteration
 
@@ -152,6 +181,7 @@ def write_summary(
     next_iteration: list[str] | None = None,
 ) -> Path:
     logger.info("Writing summary for {}", plan_id)
+    manifest = load_manifest(run_dir)
     if (
         not outcome
         or "placeholder" in outcome.strip().lower()
@@ -160,8 +190,20 @@ def write_summary(
         or not next_iteration
     ):
         outcome, evidence, artifacts, next_iteration = summarize_execution_outputs(
-            run_dir, plan_id
+            run_dir, plan_id, goal_language=manifest.goal_language
         )
+    git_report_path = run_dir / "results" / f"{plan_id}.git.md"
+    if git_report_path.exists():
+        git_artifact = str(git_report_path.relative_to(run_dir))
+        if git_artifact not in artifacts:
+            artifacts = [*artifacts, git_artifact]
+        git_evidence = (
+            f"git:{manifest.work_branch}@{manifest.latest_work_commit}"
+            if manifest.work_branch and manifest.latest_work_commit
+            else None
+        )
+        if git_evidence and git_evidence not in evidence:
+            evidence = [*evidence, git_evidence]
     summary = render_summary_markdown(
         run_id=run_dir.name,
         plan_id=plan_id,
@@ -170,6 +212,9 @@ def write_summary(
         evidence=evidence,
         artifacts=artifacts,
         next_iteration=next_iteration,
+        goal_language=manifest.goal_language,
+        work_branch=manifest.work_branch,
+        work_commit=manifest.latest_work_commit,
     )
     errors = validate_summary_markdown(summary)
     if errors:

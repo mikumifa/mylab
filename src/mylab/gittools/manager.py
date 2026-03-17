@@ -42,6 +42,14 @@ class GitManager:
         logger.info("Checking out git branch {}", branch)
         self._run(["checkout", branch])
 
+    def branch_exists(self, branch: str) -> bool:
+        result = subprocess.run(
+            ["git", "-C", str(self.repo_path), "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+
     def add(self, *paths: str) -> None:
         if not paths:
             return

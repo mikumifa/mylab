@@ -14,6 +14,7 @@ from mylab.services.telegram_bot import (
     TelegramSettings,
     interactive_telegram_setup,
     load_feedback_context,
+    load_persistent_feedback_context,
     load_telegram_settings,
 )
 
@@ -137,7 +138,7 @@ class TelegramBotTest(unittest.TestCase):
         settings = load_telegram_settings(custom_home_config)
         self.assertEqual(settings.bot_token, "123:abc")
 
-    def test_on_off_text_and_document_are_persisted(self) -> None:
+    def test_on_off_text_and_document_are_persisted_with_scopes(self) -> None:
         updates = [
             {
                 "update_id": 1,
@@ -162,6 +163,14 @@ class TelegramBotTest(unittest.TestCase):
             {
                 "update_id": 5,
                 "message": {
+                    "message_id": 14,
+                    "chat": {"id": 42},
+                    "text": "/run always keep the lightweight baseline in scope",
+                },
+            },
+            {
+                "update_id": 6,
+                "message": {
                     "message_id": 13,
                     "chat": {"id": 42},
                     "document": {"file_id": "file-1", "file_name": "notes.txt"},
@@ -175,29 +184,45 @@ class TelegramBotTest(unittest.TestCase):
 
         processed = bot.poll_once()
 
-        self.assertEqual(processed, 5)
+        self.assertEqual(processed, 6)
         state = json.loads(telegram_bot.TELEGRAM_STATE_FILE.read_text(encoding="utf-8"))
         self.assertTrue(state["notifications_enabled"])
-        self.assertEqual(state["last_update_id"], 5)
+        self.assertEqual(state["last_update_id"], 6)
 
         inbox_lines = telegram_bot.TELEGRAM_INBOX_FILE.read_text(
             encoding="utf-8"
         ).splitlines()
         records = [json.loads(line) for line in inbox_lines]
         kinds = [record["kind"] for record in records]
-        self.assertEqual(kinds, ["command", "command", "command", "text", "document"])
+        scopes = [record.get("scope", "-") for record in records]
+        self.assertEqual(
+            kinds, ["command", "command", "command", "text", "text", "document"]
+        )
+        self.assertEqual(scopes, ["-", "-", "-", "step", "run", "run"])
         self.assertTrue((telegram_bot.TELEGRAM_FILE_DIR / "13-notes.txt").exists())
 
         context = load_feedback_context(limit=5)
         self.assertIn("lighter baseline", context)
+        self.assertIn("scope=step", context)
+        self.assertIn("scope=run", context)
         self.assertIn("13-notes.txt", context)
+        persistent_context = load_persistent_feedback_context(limit=5)
+        self.assertIn("always keep the lightweight baseline in scope", persistent_context)
+        self.assertNotIn("next round compare", persistent_context)
         self.assertEqual(
             bot.sent_messages,
             [
                 (42, "mylab telegram bot ok."),
                 (42, "mylab notifications paused."),
                 (42, "mylab notifications enabled."),
-                (42, "Feedback saved for the next iteration."),
+                (
+                    42,
+                    "Feedback saved for the next iteration. Use /run <text> for persistent run guidance.",
+                ),
+                (
+                    42,
+                    "Run guidance saved. It will be carried into future iterations.",
+                ),
                 (42, "File saved: 13-notes.txt"),
             ],
         )

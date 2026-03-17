@@ -8,8 +8,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from mylab.services.git_lifecycle import commit_iteration_changes, ensure_run_branch
 from mylab.services.plans import bootstrap_run
-from mylab.storage.runs import init_run_dirs, planned_run_dirs
+from mylab.storage.runs import init_run_dirs, load_manifest, planned_run_dirs
 
 
 def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -102,6 +103,61 @@ class GitPreflightTest(unittest.TestCase):
         self.assertEqual(commit_subject, "chore: ignore mylab run artifacts")
         self.assertEqual(manifest.original_branch, "main")
         self.assertEqual(manifest.original_head_commit, head_after)
+
+    def test_iteration_commit_writes_delivery_report(self) -> None:
+        (self.repo / "README.md").write_text("base\n", encoding="utf-8")
+        run_git(self.repo, "add", "README.md")
+        run_git(self.repo, "commit", "-m", "init")
+
+        paths = init_run_dirs(self.repo / ".mylab_runs" / "run-005")
+        manifest = bootstrap_run(
+            repo_path=self.repo,
+            goal_text="用中文复现实验",
+            run_id="run-005",
+            paths=paths,
+            source_branch="main",
+        )
+        ensure_run_branch(paths.root, manifest, "plan-001")
+        (self.repo / "experiment.txt").write_text("iteration 1\n", encoding="utf-8")
+
+        report_path = commit_iteration_changes(paths.root, manifest, "plan-001")
+
+        commit_subject = run_git(self.repo, "log", "-1", "--pretty=%s").stdout.strip()
+        saved_manifest = load_manifest(paths.root)
+        self.assertEqual(commit_subject, "mylab: deliver plan-001")
+        self.assertEqual(saved_manifest.work_branch, "mylab/run-005/plan-001")
+        self.assertTrue(saved_manifest.latest_work_commit)
+        self.assertTrue(report_path.exists())
+        report = report_path.read_text(encoding="utf-8")
+        self.assertIn("- work_branch: mylab/run-005/plan-001", report)
+        self.assertIn("- committed_new_changes: yes", report)
+
+    def test_existing_work_branch_is_reused_instead_of_reset(self) -> None:
+        (self.repo / "README.md").write_text("base\n", encoding="utf-8")
+        run_git(self.repo, "add", "README.md")
+        run_git(self.repo, "commit", "-m", "init")
+
+        paths = init_run_dirs(self.repo / ".mylab_runs" / "run-006")
+        manifest = bootstrap_run(
+            repo_path=self.repo,
+            goal_text="goal",
+            run_id="run-006",
+            paths=paths,
+            source_branch="main",
+        )
+        ensure_run_branch(paths.root, manifest, "plan-001")
+        (self.repo / "kept.txt").write_text("keep me\n", encoding="utf-8")
+        commit_iteration_changes(paths.root, manifest, "plan-001")
+        first_commit = load_manifest(paths.root).latest_work_commit
+
+        run_git(self.repo, "checkout", "main")
+        manifest = load_manifest(paths.root)
+        branch = ensure_run_branch(paths.root, manifest, "plan-002")
+        current_head = run_git(self.repo, "rev-parse", "HEAD").stdout.strip()
+
+        self.assertEqual(branch, "mylab/run-006/plan-001")
+        self.assertEqual(current_head, first_commit)
+        self.assertTrue((self.repo / "kept.txt").exists())
 
 
 if __name__ == "__main__":

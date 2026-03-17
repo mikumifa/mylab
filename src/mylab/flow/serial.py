@@ -10,7 +10,11 @@ from mylab.logging import emit_progress, logger
 from mylab.orchestrator.queue import load_queue, save_queue
 from mylab.services.executor import prepare_executor, run_executor
 from mylab.services.formatting import format_for_manifest
-from mylab.services.git_lifecycle import ensure_run_branch, restore_original_branch
+from mylab.services.git_lifecycle import (
+    commit_iteration_changes,
+    ensure_run_branch,
+    restore_original_branch,
+)
 from mylab.services.notifications import NotificationClient, load_notification_settings
 from mylab.services.plans import create_initial_plan, create_iterated_plan
 from mylab.services.reports import write_summary
@@ -54,6 +58,7 @@ class SerialFlowRunner:
             "prepare_branch": "git branch setup",
             "prepare_executor": "executor preparation",
             "run_executor": "codex execution",
+            "commit_changes": "git delivery",
             "write_summary": "summary writing",
             "restore_branch": "branch restore",
         }
@@ -83,6 +88,7 @@ class SerialFlowRunner:
             "prepare_branch",
             "prepare_executor",
             "run_executor",
+            "commit_changes",
             "write_summary",
             "restore_branch",
         }
@@ -179,6 +185,10 @@ class SerialFlowRunner:
             return
         if task.kind == "run_executor":
             plan_id = str(task.payload["plan_id"])
+            self._append_task(queue, "commit_changes", {"plan_id": plan_id})
+            return
+        if task.kind == "commit_changes":
+            plan_id = str(task.payload["plan_id"])
             self._append_task(
                 queue,
                 "write_summary",
@@ -237,6 +247,12 @@ class SerialFlowRunner:
                     str(task.payload["plan_id"]),
                     model=self._payload_model(task),
                     full_auto=bool(task.payload.get("full_auto", False)),
+                )
+            )
+        if task.kind == "commit_changes":
+            return str(
+                commit_iteration_changes(
+                    self.run_dir, manifest, str(task.payload["plan_id"])
                 )
             )
         if task.kind == "write_summary":
