@@ -6,6 +6,7 @@ import time
 import tomllib
 import urllib.parse
 import urllib.request
+from html import escape as html_escape
 from getpass import getpass
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,6 +82,16 @@ def _parse_notification_chat_ids(
         if chat_id not in chat_ids:
             chat_ids.append(chat_id)
     return chat_ids
+
+
+def parse_notification_chat_ids(
+    urls: list[str], bot_token: str | None = None
+) -> list[int]:
+    return _parse_notification_chat_ids(urls, bot_token)
+
+
+def is_telegram_notify_url(value: object) -> bool:
+    return isinstance(value, str) and value.strip().startswith("tgram://")
 
 
 def write_user_config(
@@ -430,8 +441,17 @@ class TelegramBotClient:
             raise RuntimeError("telegram getMe returned no result")
         return result
 
-    def send_message(self, chat_id: int, text: str) -> None:
-        self._post("sendMessage", {"chat_id": chat_id, "text": text})
+    def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        parse_mode: str | None = None,
+    ) -> None:
+        payload: dict[str, object] = {"chat_id": chat_id, "text": text}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        self._post("sendMessage", payload)
 
     def _post_multipart(
         self,
@@ -741,6 +761,54 @@ def _summary_message(summary_content: str, *, run_id: str, plan_id: str) -> str:
         parts.append(f"Next Iteration:\n{next_iteration}")
     parts.append("Reply /continue to proceed, or /step <text> to guide the next iteration.")
     return "\n\n".join(parts)[:4000]
+
+
+def _telegram_notification_prefix(notify_type: str) -> str:
+    if notify_type == "success":
+        return "SUCCESS"
+    if notify_type == "warning":
+        return "WARNING"
+    if notify_type == "failure":
+        return "FAILURE"
+    return "INFO"
+
+
+def format_telegram_notification_message(
+    title: str,
+    body: str,
+    *,
+    notify_type: str = "info",
+) -> str:
+    safe_title = html_escape(title.strip())
+    safe_body = html_escape(body.strip())
+    prefix = _telegram_notification_prefix(notify_type)
+    if safe_body:
+        return f"<b>{prefix}</b>\n<b>{safe_title}</b>\n\n{safe_body}"[:4000]
+    return f"<b>{prefix}</b>\n<b>{safe_title}</b>"[:4000]
+
+
+def send_telegram_notification(
+    settings: TelegramSettings,
+    urls: list[str],
+    *,
+    title: str,
+    body: str,
+    notify_type: str = "info",
+) -> bool:
+    if not settings.enabled:
+        return False
+    chat_ids = parse_notification_chat_ids(urls, settings.bot_token)
+    if not chat_ids:
+        return False
+    client = TelegramBotClient(settings)
+    message = format_telegram_notification_message(
+        title,
+        body,
+        notify_type=notify_type,
+    )
+    for chat_id in chat_ids:
+        client.send_message(chat_id, message, parse_mode="HTML")
+    return True
 
 
 def _extract_summary_section(content: str, heading: str) -> str:

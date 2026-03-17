@@ -19,8 +19,14 @@ FEISHU_WEBHOOK_PREFIXES = (
 )
 
 
-def _is_feishu_notify_url(value: str) -> bool:
-    return value.startswith(FEISHU_WEBHOOK_PREFIXES)
+def _is_feishu_notify_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    return value.strip().startswith(FEISHU_WEBHOOK_PREFIXES)
+
+
+def is_feishu_notify_url(value: object) -> bool:
+    return _is_feishu_notify_url(value)
 
 
 def _default_webhook_url(
@@ -284,6 +290,14 @@ def send_feishu_test_message(
     settings: FeishuSettings,
     *,
     message: str = "This is a test notification from mylab bot test.",
+) -> bool:
+    return send_feishu_message(settings, message=message)
+
+
+def send_feishu_message(
+    settings: FeishuSettings,
+    *,
+    message: str,
 ) -> bool:
     sent = False
     if settings.webhook_url:

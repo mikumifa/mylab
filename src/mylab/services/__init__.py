@@ -3,7 +3,9 @@ from .executor import prepare_executor, run_executor
 from .feishu_bot import (
     configure_feishu_bot,
     interactive_feishu_setup,
+    is_feishu_notify_url,
     load_feishu_settings,
+    send_feishu_message,
     send_feishu_test_message,
 )
 from .job_monitor import (
@@ -22,7 +24,11 @@ from .notifications import (
 )
 from .telegram_bot import (
     configure_telegram_bot,
+    format_telegram_notification_message,
     interactive_telegram_setup,
+    is_telegram_notify_url,
+    parse_notification_chat_ids,
+    send_telegram_notification,
     TelegramBotClient,
     load_feedback_context,
     load_persistent_feedback_context,
@@ -55,9 +61,12 @@ __all__ = [
     "create_iterated_plan",
     "default_deliverables",
     "format_repo_report",
+    "format_telegram_notification_message",
     "heuristic_questions",
     "heuristic_steps",
     "interactive_feishu_setup",
+    "is_feishu_notify_url",
+    "is_telegram_notify_url",
     "load_repo_asset",
     "load_feishu_settings",
     "load_notification_settings",
@@ -71,6 +80,8 @@ __all__ = [
     "render_summary_markdown",
     "run_executor",
     "TelegramBotClient",
+    "parse_notification_chat_ids",
+    "send_telegram_notification",
     "write_sample_config",
     "update_repo_asset",
     "validate_summary_markdown",
@@ -89,5 +100,6 @@ __all__ = [
     "FLOW_MODE_UNLIMIT",
     "load_run_control_settings",
     "prompt_for_flow_mode",
+    "send_feishu_message",
     "send_feishu_test_message",
 ]

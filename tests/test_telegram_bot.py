@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import mylab.services.telegram_bot as telegram_bot
 from mylab.services.telegram_bot import (
+    format_telegram_notification_message,
     TelegramBotClient,
     TelegramSettings,
     interactive_telegram_setup,
@@ -26,15 +27,17 @@ class FakeTelegramBot(TelegramBotClient):
     ) -> None:
         super().__init__(settings)
         self._updates = updates
-        self.sent_messages: list[tuple[int, str]] = []
+        self.sent_messages: list[tuple[int, str, str | None]] = []
         self.sent_documents: list[tuple[int, str, str | None]] = []
         self.downloads: dict[str, bytes] = {"documents/test.txt": b"hello"}
 
     def get_updates(self) -> list[dict[str, object]]:
         return self._updates
 
-    def send_message(self, chat_id: int, text: str) -> None:
-        self.sent_messages.append((chat_id, text))
+    def send_message(
+        self, chat_id: int, text: str, *, parse_mode: str | None = None
+    ) -> None:
+        self.sent_messages.append((chat_id, text, parse_mode))
 
     def get_file_path(self, file_id: str) -> str:
         return "documents/test.txt"
@@ -87,6 +90,16 @@ class TelegramBotTest(unittest.TestCase):
         self.assertEqual(settings.allowed_chat_ids, [42])
         self.assertEqual(settings.poll_interval_seconds, 3)
         self.assertEqual(settings.feedback_context_limit, 2)
+
+    def test_format_telegram_notification_message_uses_html(self) -> None:
+        message = format_telegram_notification_message(
+            "mylab <summary>",
+            "accuracy > 90%",
+            notify_type="success",
+        )
+        self.assertIn("<b>SUCCESS</b>", message)
+        self.assertIn("<b>mylab &lt;summary&gt;</b>", message)
+        self.assertIn("accuracy &gt; 90%", message)
 
     def test_interactive_setup_writes_config(self) -> None:
         config_path = self.root / "config.toml"
@@ -225,22 +238,25 @@ class TelegramBotTest(unittest.TestCase):
         self.assertEqual(
             bot.sent_messages,
             [
-                (42, "mylab telegram bot ok."),
-                (42, "mylab notifications paused."),
-                (42, "mylab notifications enabled."),
+                (42, "mylab telegram bot ok.", None),
+                (42, "mylab notifications paused.", None),
+                (42, "mylab notifications enabled.", None),
                 (
                     42,
                     "Queued the next iteration using the latest run context.",
+                    None,
                 ),
                 (
                     42,
                     "Feedback saved for the next iteration. Use /run <text> for persistent run guidance.",
+                    None,
                 ),
                 (
                     42,
                     "Run guidance saved. It will be carried into future iterations.",
+                    None,
                 ),
-                (42, "File saved: 13-notes.txt"),
+                (42, "File saved: 13-notes.txt", None),
             ],
         )
 
