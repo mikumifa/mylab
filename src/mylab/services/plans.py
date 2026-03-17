@@ -11,7 +11,7 @@ from mylab.services.git_lifecycle import prepare_repo_for_run
 from mylab.services.assets import load_repo_asset, upsert_plan_index_record
 from mylab.services.telegram_bot import load_feedback_context, load_telegram_settings
 from mylab.storage import append_jsonl, read_text, write_text
-from mylab.storage.runs import save_manifest
+from mylab.storage.runs import init_run_dirs, save_manifest
 from mylab.utils import detect_source_branch, slugify, utc_now
 
 
@@ -137,6 +137,7 @@ def bootstrap_run(
     original_branch, original_head_commit = prepare_repo_for_run(
         repo_path, paths.root, paths.logs / "git-lifecycle.jsonl"
     )
+    paths = init_run_dirs(paths.root)
     resolved_branch = source_branch or detect_source_branch(repo_path)
     logger.info("Bootstrapping run {} for repo {}", run_id, repo_path)
     goal_file = paths.inputs / input_file_name

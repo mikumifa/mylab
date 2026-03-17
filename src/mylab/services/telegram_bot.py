@@ -52,7 +52,10 @@ def _split_notify_values(values: str) -> list[str]:
     return parts
 
 
-def write_user_config(payload: dict[str, object], path: Path = CONFIG_FILE) -> Path:
+def write_user_config(
+    payload: dict[str, object], path: Path | None = CONFIG_FILE
+) -> Path:
+    target = path or CONFIG_FILE
     lines: list[str] = []
     for section_name, section_value in payload.items():
         if not isinstance(section_name, str) or not isinstance(section_value, dict):
@@ -63,8 +66,8 @@ def write_user_config(payload: dict[str, object], path: Path = CONFIG_FILE) -> P
                 continue
             lines.append(f"{key} = {_format_toml_value(value)}")
         lines.append("")
-    write_text(path, "\n".join(lines).rstrip())
-    return path
+    write_text(target, "\n".join(lines).rstrip())
+    return target
 
 
 @dataclass
@@ -116,9 +119,10 @@ def configure_telegram_bot(
     poll_interval_seconds: int,
     feedback_context_limit: int,
     notification_chat_id: int | None,
-    config_path: Path = CONFIG_FILE,
+    config_path: Path | None = CONFIG_FILE,
 ) -> Path:
-    payload = _read_config(config_path)
+    target = config_path or CONFIG_FILE
+    payload = _read_config(target)
     telegram_section = payload.get("telegram", {})
     if not isinstance(telegram_section, dict):
         telegram_section = {}
@@ -146,16 +150,17 @@ def configure_telegram_bot(
         preserved_urls.insert(0, f"tgram://{bot_token.strip()}/{notification_chat_id}")
     notifications["urls"] = preserved_urls
     payload["notifications"] = notifications
-    return write_user_config(payload, config_path)
+    return write_user_config(payload, target)
 
 
 def interactive_telegram_setup(
     *,
-    config_path: Path = CONFIG_FILE,
+    config_path: Path | None = CONFIG_FILE,
     input_fn: Any = input,
     secret_input_fn: Any = getpass,
 ) -> Path:
-    current = _read_config(config_path)
+    target = config_path or CONFIG_FILE
+    current = _read_config(target)
     telegram = current.get("telegram", {})
     notifications = current.get("notifications", {})
     telegram = telegram if isinstance(telegram, dict) else {}
@@ -166,7 +171,7 @@ def interactive_telegram_setup(
     current_poll = int(telegram.get("poll_interval_seconds", 5))
     current_feedback_limit = int(telegram.get("feedback_context_limit", 5))
 
-    print(f"Config file: {config_path}")
+    print(f"Config file: {target}")
     print("Telegram only requires a bot token. Advanced fields are optional.")
     token = secret_input_fn(
         f"Telegram bot token [{'*' * 8 if current_token else 'required'}]: "
@@ -243,7 +248,7 @@ def interactive_telegram_setup(
         poll_interval_seconds=poll_interval_seconds,
         feedback_context_limit=feedback_context_limit,
         notification_chat_id=notification_chat_id,
-        config_path=config_path,
+        config_path=target,
     )
 
 

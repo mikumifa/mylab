@@ -7,10 +7,18 @@ from mylab.domain import RunManifest, RunPaths
 from mylab.storage.io import ensure_dir, read_json, write_json
 
 
+def planned_run_dirs(run_root: Path) -> RunPaths:
+    return RunPaths(
+        root=run_root,
+        **{name: run_root / name for name in RUN_SUBDIRS},
+    )
+
+
 def init_run_dirs(run_root: Path) -> RunPaths:
-    ensure_dir(run_root)
-    paths = {name: ensure_dir(run_root / name) for name in RUN_SUBDIRS}
-    return RunPaths(root=run_root, **paths)
+    paths = planned_run_dirs(run_root)
+    ensure_dir(paths.root)
+    ensured = {name: ensure_dir(getattr(paths, name)) for name in RUN_SUBDIRS}
+    return RunPaths(root=paths.root, **ensured)
 
 
 def load_manifest(run_dir: Path) -> RunManifest:

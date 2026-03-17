@@ -118,6 +118,25 @@ class TelegramBotTest(unittest.TestCase):
         content = config_path.read_text(encoding="utf-8")
         self.assertNotIn("tgram://", content)
 
+    def test_interactive_setup_accepts_none_config_path(self) -> None:
+        custom_home_config = self.root / ".mylab" / "config.toml"
+        original_config_file = telegram_bot.CONFIG_FILE
+        telegram_bot.CONFIG_FILE = custom_home_config
+        answers = iter([""])
+        try:
+            path = interactive_telegram_setup(
+                config_path=None,
+                input_fn=lambda _prompt="": next(answers),
+                secret_input_fn=lambda _prompt="": "123:abc",
+            )
+        finally:
+            telegram_bot.CONFIG_FILE = original_config_file
+
+        self.assertEqual(path, custom_home_config)
+        self.assertTrue(custom_home_config.exists())
+        settings = load_telegram_settings(custom_home_config)
+        self.assertEqual(settings.bot_token, "123:abc")
+
     def test_on_off_text_and_document_are_persisted(self) -> None:
         updates = [
             {

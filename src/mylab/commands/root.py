@@ -31,7 +31,7 @@ from mylab.services import (
 from mylab.services.git_lifecycle import restore_original_branch
 from mylab.services.plans import lab_input_text
 from mylab.storage import init_run_dirs, runs_root
-from mylab.storage.runs import load_manifest
+from mylab.storage.runs import load_manifest, planned_run_dirs
 
 
 HELP_FORMATTER = argparse.RawDescriptionHelpFormatter
@@ -451,8 +451,7 @@ def cmd_init_run(args: argparse.Namespace) -> int:
     lab_md = args.lab_md.expanduser().resolve() if args.lab_md else None
     goal_text = lab_input_text(args.goal, lab_md)
     run_id = args.run_id or make_run_id(goal_text)
-    paths = init_run_dirs(runs_root() / run_id)
-    configure_logging(paths.logs)
+    paths = planned_run_dirs(runs_root() / run_id)
     input_text, input_name = resolve_goal_input(args.goal, lab_md)
     bootstrap_run(
         repo_path=repo_path,
@@ -463,6 +462,7 @@ def cmd_init_run(args: argparse.Namespace) -> int:
         input_file_name=input_name,
         notifications=resolve_notification_settings(),
     )
+    configure_logging(paths.logs)
     enqueue_initial_pipeline(paths.root, args.model)
     logger.info("Initialized run at {}", paths.root)
     print(paths.root)
@@ -508,9 +508,7 @@ def cmd_run_flow(args: argparse.Namespace) -> int:
         lab_md = args.lab_md.expanduser().resolve() if args.lab_md else None
         goal_text = lab_input_text(args.goal, lab_md)
         run_id = args.run_id or make_run_id(goal_text)
-        paths = init_run_dirs(runs_root() / run_id)
-        configure_logging(paths.logs)
-        print_codex_preflight(args.model)
+        paths = planned_run_dirs(runs_root() / run_id)
         input_text, input_name = resolve_goal_input(args.goal, lab_md)
         bootstrap_run(
             repo_path=repo_path,
@@ -521,6 +519,8 @@ def cmd_run_flow(args: argparse.Namespace) -> int:
             input_file_name=input_name,
             notifications=resolve_notification_settings(),
         )
+        configure_logging(paths.logs)
+        print_codex_preflight(args.model)
         enqueue_initial_pipeline(paths.root, args.model)
         run_dir = paths.root
         logger.info("Initialized run at {}", run_dir)
@@ -559,7 +559,7 @@ def ensure_manifest_or_bootstrap(args: argparse.Namespace):
     lab_md = args.lab_md.expanduser().resolve() if args.lab_md else None
     goal_text = lab_input_text(args.goal, lab_md)
     run_id = args.run_id or make_run_id(goal_text)
-    paths = init_run_dirs(runs_root() / run_id)
+    paths = planned_run_dirs(runs_root() / run_id)
     input_text, input_name = resolve_goal_input(args.goal, lab_md)
     manifest = bootstrap_run(
         repo_path=repo_path,
@@ -674,7 +674,7 @@ def cmd_init_config(args: argparse.Namespace) -> int:
 
 
 def cmd_bot_telegram(args: argparse.Namespace) -> int:
-    path = interactive_telegram_setup(config_path=args.config_path or None)
+    path = interactive_telegram_setup(config_path=args.config_path)
     print(path)
     return 0
 

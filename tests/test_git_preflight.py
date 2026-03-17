@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mylab.services.plans import bootstrap_run
-from mylab.storage.runs import init_run_dirs
+from mylab.storage.runs import init_run_dirs, planned_run_dirs
 
 
 def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -59,6 +59,24 @@ class GitPreflightTest(unittest.TestCase):
                 paths=paths,
                 source_branch="main",
             )
+
+    def test_bootstrap_does_not_create_run_dir_before_preflight(self) -> None:
+        (self.repo / "README.md").write_text("base\n", encoding="utf-8")
+        run_git(self.repo, "add", "README.md")
+        run_git(self.repo, "commit", "-m", "init")
+        (self.repo / "README.md").write_text("dirty\n", encoding="utf-8")
+
+        run_root = self.repo / ".mylab_runs" / "run-004"
+        with self.assertRaisesRegex(RuntimeError, "uncommitted changes"):
+            bootstrap_run(
+                repo_path=self.repo,
+                goal_text="goal",
+                run_id="run-004",
+                paths=planned_run_dirs(run_root),
+                source_branch="main",
+            )
+
+        self.assertFalse(run_root.exists())
 
     def test_bootstrap_commits_gitignore_entry_and_records_branch(self) -> None:
         (self.repo / "README.md").write_text("base\n", encoding="utf-8")
