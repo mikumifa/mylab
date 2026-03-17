@@ -98,22 +98,46 @@ def summarize_execution_outputs(
     plan_id: str,
     *,
     goal_language: str,
+    goal_text: str | None = None,
 ) -> tuple[str, list[str], list[str], list[str]]:
+    goal_hint = " ".join((goal_text or "").split())
     if goal_language == "zh":
         missing_report = "执行已完成，但没有找到结果报告。请直接检查 executor 日志。"
         empty_report = "执行已完成，但结果报告为空。"
-        write_report = "打开 executor 输出并补写结构化结果报告。"
-        rerun_report = "重新执行 executor，或检查结果报告为什么为空。"
-        review_next = "检查结果报告，并决定下一步最小且可辩护的改动。"
+        write_report = (
+            f"围绕用户原始目标继续推进：{goal_hint}；先打开 executor 输出并补写结构化结果报告。"
+            if goal_hint
+            else "回到用户原始目标，先打开 executor 输出并补写结构化结果报告。"
+        )
+        rerun_report = (
+            f"围绕用户原始目标继续推进：{goal_hint}；重新执行 executor，或检查结果报告为什么为空。"
+            if goal_hint
+            else "回到用户原始目标，重新执行 executor，或检查结果报告为什么为空。"
+        )
+        review_next = (
+            f"围绕用户原始目标继续推进：{goal_hint}"
+            if goal_hint
+            else "回到用户原始目标，判断下一步是否还能实质性推进该目标；如果不能，就明确说明当前结论。"
+        )
     else:
         missing_report = (
             "Execution finished, but no result report was found. Inspect the executor logs directly."
         )
         empty_report = "Execution finished, but the result report is empty."
-        write_report = "Open the executor output and write a structured result report."
-        rerun_report = "Re-run the executor or inspect why the result report was empty."
+        write_report = (
+            f"Continue only if it materially advances the user's original goal: {goal_hint}; first open the executor output and write a structured result report."
+            if goal_hint
+            else "Return to the user's original goal, then open the executor output and write a structured result report."
+        )
+        rerun_report = (
+            f"Continue only if it materially advances the user's original goal: {goal_hint}; re-run the executor or inspect why the result report was empty."
+            if goal_hint
+            else "Return to the user's original goal, then re-run the executor or inspect why the result report was empty."
+        )
         review_next = (
-            "Review the result report and decide the next smallest defensible change."
+            f"Continue only if it materially advances the user's original goal: {goal_hint}"
+            if goal_hint
+            else "Return to the user's original goal and decide whether another iteration would materially advance it; if not, state the current conclusion clearly."
         )
     result_path = run_dir / "results" / f"{plan_id}.result.md"
     codex_last_path = run_dir / "results" / f"{plan_id}.codex.last.md"
@@ -182,6 +206,11 @@ def write_summary(
 ) -> Path:
     logger.info("Writing summary for {}", plan_id)
     manifest = load_manifest(run_dir)
+    goal_text: str | None = None
+    if manifest.goal_file:
+        goal_path = Path(manifest.goal_file)
+        if goal_path.exists():
+            goal_text = read_text(goal_path)
     if (
         not outcome
         or "placeholder" in outcome.strip().lower()
@@ -190,7 +219,10 @@ def write_summary(
         or not next_iteration
     ):
         outcome, evidence, artifacts, next_iteration = summarize_execution_outputs(
-            run_dir, plan_id, goal_language=manifest.goal_language
+            run_dir,
+            plan_id,
+            goal_language=manifest.goal_language,
+            goal_text=goal_text,
         )
     git_report_path = run_dir / "results" / f"{plan_id}.git.md"
     if git_report_path.exists():
@@ -248,4 +280,15 @@ def write_summary(
             artifacts=artifacts,
             next_iteration=next_iteration,
         )
+    try:
+        from mylab.services.telegram_bot import push_summary_to_telegram
+
+        push_summary_to_telegram(
+            run_dir,
+            plan_id,
+            summary_path,
+            summary_content=summary,
+        )
+    except Exception:
+        logger.exception("Failed to push summary to Telegram for {}", plan_id)
     return summary_path

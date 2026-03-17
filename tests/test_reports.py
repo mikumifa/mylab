@@ -27,6 +27,10 @@ class ReportsTest(unittest.TestCase):
                 runs_env_var="MYLAB_RUNS_DIR",
             ),
         )
+        (self.paths.inputs / "goal.txt").write_text(
+            "reproduce the user's requested main experiment and report the conclusion\n",
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -125,6 +129,9 @@ class ReportsTest(unittest.TestCase):
     def test_write_summary_uses_goal_language_for_missing_report(self) -> None:
         manifest = load_manifest(self.paths.root)
         manifest.goal_language = "zh"
+        goal_path = Path(manifest.goal_file)
+        goal_path.parent.mkdir(parents=True, exist_ok=True)
+        goal_path.write_text("复现用户要求的主实验并给出结论\n", encoding="utf-8")
         save_manifest(self.paths, manifest)
 
         summary_path = write_summary(
@@ -139,7 +146,7 @@ class ReportsTest(unittest.TestCase):
 
         content = summary_path.read_text(encoding="utf-8")
         self.assertIn("执行已完成，但没有找到结果报告。", content)
-        self.assertIn("打开 executor 输出并补写结构化结果报告。", content)
+        self.assertIn("复现用户要求的主实验并给出结论", content)
 
 
 if __name__ == "__main__":

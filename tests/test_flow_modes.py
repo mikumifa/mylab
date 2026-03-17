@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -17,6 +18,7 @@ from mylab.services.run_control import (
     FLOW_MODE_UNLIMIT,
     load_run_control_settings,
 )
+from mylab.services.telegram_bot import TelegramSettings
 from mylab.storage.runs import init_run_dirs, save_manifest
 
 
@@ -198,6 +200,47 @@ class FlowModeTest(unittest.TestCase):
         self.assertEqual(
             queue.tasks[0].payload["feedback"], "next instruction from telegram"
         )
+
+    def test_step_mode_does_not_block_on_stdin_when_telegram_is_enabled(self) -> None:
+        save_manifest(
+            self.paths,
+            RunManifest(
+                run_id="run-001",
+                repo_path=str(self.root / "repo"),
+                source_branch="main",
+                goal_file=str(self.paths.inputs / "goal.txt"),
+                runs_env_var="MYLAB_RUNS_DIR",
+                latest_plan_id="plan-001",
+            ),
+        )
+        runner = FakeSerialFlowRunner(
+            self.paths.root,
+            allow_exec=False,
+            mode=FLOW_MODE_STEP,
+        )
+        original_load = serial_module.load_telegram_settings
+        original_consume = serial_module.consume_feedback_since
+        original_sleep = serial_module.time.sleep
+        try:
+            serial_module.load_telegram_settings = lambda: TelegramSettings(
+                bot_token="123:abc",
+                allowed_chat_ids=[42],
+                poll_interval_seconds=1,
+            )
+            serial_module.consume_feedback_since = lambda cursor: (None, cursor)
+
+            def stop_sleep(_seconds: int) -> None:
+                raise RuntimeError("stop-loop")
+
+            serial_module.time.sleep = stop_sleep
+            with patch("builtins.input", side_effect=AssertionError("stdin should not be used")):
+                with patch("sys.stdin.isatty", return_value=True):
+                    with self.assertRaisesRegex(RuntimeError, "stop-loop"):
+                        runner._wait_for_step_feedback(1)
+        finally:
+            serial_module.load_telegram_settings = original_load
+            serial_module.consume_feedback_since = original_consume
+            serial_module.time.sleep = original_sleep
 
     def test_unlimit_mode_queues_next_iteration_instead_of_stopping(self) -> None:
         save_manifest(

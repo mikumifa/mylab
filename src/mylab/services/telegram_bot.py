@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import time
 import tomllib
 import urllib.parse
@@ -18,6 +19,7 @@ from mylab.config import (
 )
 from mylab.logging import logger
 from mylab.storage import append_jsonl, ensure_dir, read_json, write_json, write_text
+from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
 STEP_SCOPE = "step"
@@ -53,6 +55,32 @@ def _split_notify_values(values: str) -> list[str]:
         if value:
             parts.append(value)
     return parts
+
+
+def _parse_notification_chat_ids(
+    urls: list[str], bot_token: str | None = None
+) -> list[int]:
+    chat_ids: list[int] = []
+    for raw_url in urls:
+        value = str(raw_url).strip()
+        if not value.startswith("tgram://"):
+            continue
+        suffix = value.removeprefix("tgram://")
+        if "/" not in suffix:
+            continue
+        token_part, chat_part = suffix.split("/", 1)
+        if bot_token and token_part and token_part != bot_token:
+            continue
+        candidate = chat_part.strip().strip("/")
+        if not candidate:
+            continue
+        try:
+            chat_id = int(candidate)
+        except ValueError:
+            continue
+        if chat_id not in chat_ids:
+            chat_ids.append(chat_id)
+    return chat_ids
 
 
 def write_user_config(
@@ -401,6 +429,67 @@ class TelegramBotClient:
     def send_message(self, chat_id: int, text: str) -> None:
         self._post("sendMessage", {"chat_id": chat_id, "text": text})
 
+    def _post_multipart(
+        self,
+        method: str,
+        fields: dict[str, str],
+        file_field: str,
+        file_name: str,
+        content: bytes,
+        content_type: str,
+    ) -> dict[str, object]:
+        boundary = f"mylab-{int(time.time() * 1000)}"
+        chunks: list[bytes] = []
+        for key, value in fields.items():
+            chunks.extend(
+                [
+                    f"--{boundary}\r\n".encode("utf-8"),
+                    (
+                        f'Content-Disposition: form-data; name="{key}"\r\n\r\n'
+                    ).encode("utf-8"),
+                    str(value).encode("utf-8"),
+                    b"\r\n",
+                ]
+            )
+        chunks.extend(
+            [
+                f"--{boundary}\r\n".encode("utf-8"),
+                (
+                    f'Content-Disposition: form-data; name="{file_field}"; '
+                    f'filename="{file_name}"\r\n'
+                ).encode("utf-8"),
+                f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"),
+                content,
+                b"\r\n",
+                f"--{boundary}--\r\n".encode("utf-8"),
+            ]
+        )
+        request = urllib.request.Request(
+            self._api_url(method),
+            data=b"".join(chunks),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def send_document(
+        self, chat_id: int, file_path: Path, *, caption: str | None = None
+    ) -> None:
+        content_type = (
+            mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        )
+        fields = {"chat_id": str(chat_id)}
+        if caption:
+            fields["caption"] = caption
+        self._post_multipart(
+            "sendDocument",
+            fields,
+            "document",
+            file_path.name,
+            file_path.read_bytes(),
+            content_type,
+        )
+
     def get_file_path(self, file_id: str) -> str:
         payload = self._get("getFile", {"file_id": file_id})
         result = payload.get("result", {})
@@ -440,7 +529,7 @@ class TelegramBotClient:
     def _handle_help(self, chat_id: int) -> None:
         self.send_message(
             chat_id,
-            "Supported commands: /test, /on, /off, /step <text>, /run <text>",
+            "Supported commands: /test, /on, /off, /continue, /step <text>, /run <text>",
         )
 
     def _handle_command(self, chat_id: int, text: str, message_id: int) -> None:
@@ -474,6 +563,20 @@ class TelegramBotClient:
             return
         if lowered == "/help":
             self._handle_help(chat_id)
+            return
+        if lowered == "/continue":
+            self._save_text_feedback(
+                chat_id,
+                "Continue to the next full iteration based on the latest plan, "
+                "summary, result report, repository shared asset, and preserved "
+                "execution evidence.",
+                message_id,
+                scope=STEP_SCOPE,
+            )
+            self.send_message(
+                chat_id,
+                "Queued the next iteration using the latest run context.",
+            )
             return
         if text.startswith("/step "):
             payload = text[6:].strip()
@@ -609,6 +712,7 @@ def write_sample_config(path: Path = CONFIG_FILE) -> Path:
             '# tag = "mylab"',
             "",
             "# Telegram usage:",
+            "# /continue    -> continue the next iteration from current context",
             "# /step <text> -> only the next iteration",
             "# /run <text>  -> persistent guidance for the whole run",
             "# /on | /off   -> toggle notifications",
@@ -616,3 +720,79 @@ def write_sample_config(path: Path = CONFIG_FILE) -> Path:
     )
     write_text(path, content)
     return path
+
+
+def _summary_message(summary_content: str, *, run_id: str, plan_id: str) -> str:
+    outcome = _extract_summary_section(summary_content, "# Outcome")
+    next_iteration = _extract_summary_section(summary_content, "# Next Iteration")
+    parts = [
+        f"mylab summary ready\nrun={run_id}\nplan={plan_id}",
+    ]
+    if outcome:
+        parts.append(f"Outcome:\n{outcome}")
+    if next_iteration:
+        parts.append(f"Next Iteration:\n{next_iteration}")
+    parts.append("Reply /continue to proceed, or /step <text> to guide the next iteration.")
+    return "\n\n".join(parts)[:4000]
+
+
+def _extract_summary_section(content: str, heading: str) -> str:
+    lines = content.splitlines()
+    capture = False
+    collected: list[str] = []
+    for line in lines:
+        if line.strip() == heading:
+            capture = True
+            continue
+        if capture and line.startswith("# "):
+            break
+        if capture:
+            collected.append(line.rstrip())
+    return "\n".join(line for line in collected if line.strip()).strip()
+
+
+def push_summary_to_telegram(
+    run_dir: Path,
+    plan_id: str,
+    summary_path: Path,
+    *,
+    summary_content: str,
+) -> bool:
+    settings = load_telegram_settings()
+    if not settings.enabled or not telegram_notifications_enabled():
+        return False
+    manifest = load_manifest(run_dir)
+    payload = _read_config()
+    notifications = payload.get("notifications", {})
+    raw_urls = notifications.get("urls", []) if isinstance(notifications, dict) else []
+    config_urls: list[str]
+    if isinstance(raw_urls, list):
+        config_urls = [str(item).strip() for item in raw_urls if str(item).strip()]
+    elif isinstance(raw_urls, str):
+        config_urls = _split_notify_values(raw_urls)
+    else:
+        config_urls = []
+    chat_ids = _parse_notification_chat_ids(
+        manifest.notify_urls or config_urls,
+        settings.bot_token,
+    )
+    if not chat_ids:
+        return False
+    client = TelegramBotClient(settings)
+    message = _summary_message(summary_content, run_id=run_dir.name, plan_id=plan_id)
+    result_path = run_dir / "results" / f"{plan_id}.result.md"
+    codex_last_path = run_dir / "results" / f"{plan_id}.codex.last.md"
+    sent = False
+    for chat_id in chat_ids:
+        client.send_message(chat_id, message)
+        client.send_document(chat_id, summary_path, caption=f"{plan_id} summary")
+        if result_path.exists():
+            client.send_document(chat_id, result_path, caption=f"{plan_id} result")
+        elif codex_last_path.exists():
+            client.send_document(
+                chat_id,
+                codex_last_path,
+                caption=f"{plan_id} result fallback",
+            )
+        sent = True
+    return sent

@@ -308,6 +308,7 @@ class SerialFlowRunner:
     def _wait_for_step_feedback(self, completed_iterations: int) -> str | None:
         settings = load_telegram_settings()
         poll_seconds = max(settings.poll_interval_seconds, 1)
+        telegram_enabled = settings.enabled
         warned = False
         while True:
             manifest = load_manifest(self.run_dir)
@@ -320,25 +321,33 @@ class SerialFlowRunner:
                 if not self.confirm_continue(completed_iterations):
                     return None
                 return self._auto_feedback()
-            if sys.stdin.isatty():
+            if not telegram_enabled and sys.stdin.isatty():
                 text = input(
                     f"Step mode: iteration {completed_iterations} finished. "
-                    "Enter next instruction, or /stop to stop waiting: "
+                    "Enter next instruction, /continue to keep going, or /stop to stop waiting: "
                 ).strip()
                 if not text:
                     continue
+                if text.lower() in {"/continue", "continue"}:
+                    return self._auto_feedback()
                 if text.lower() in {"/stop", "stop"}:
                     return None
                 return text
             if not warned:
+                wait_source = (
+                    "waiting for next-iteration instruction from Telegram"
+                    if telegram_enabled
+                    else "waiting for next-iteration instruction"
+                )
                 logger.info(
-                    "Step mode waiting for Telegram feedback after {} completed iteration(s)",
+                    "Step mode waiting after {} completed iteration(s); source={}",
                     completed_iterations,
+                    "telegram" if telegram_enabled else "background feedback",
                 )
                 emit_progress(
                     "[wait]",
                     "step mode",
-                    "waiting for next-iteration instruction from Telegram",
+                    wait_source,
                     color="yellow",
                 )
                 warned = True

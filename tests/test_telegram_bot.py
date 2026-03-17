@@ -16,6 +16,7 @@ from mylab.services.telegram_bot import (
     load_feedback_context,
     load_persistent_feedback_context,
     load_telegram_settings,
+    push_summary_to_telegram,
 )
 
 
@@ -26,6 +27,7 @@ class FakeTelegramBot(TelegramBotClient):
         super().__init__(settings)
         self._updates = updates
         self.sent_messages: list[tuple[int, str]] = []
+        self.sent_documents: list[tuple[int, str, str | None]] = []
         self.downloads: dict[str, bytes] = {"documents/test.txt": b"hello"}
 
     def get_updates(self) -> list[dict[str, object]]:
@@ -39,6 +41,11 @@ class FakeTelegramBot(TelegramBotClient):
 
     def download_file(self, file_path: str) -> bytes:
         return self.downloads[file_path]
+
+    def send_document(
+        self, chat_id: int, file_path: Path, *, caption: str | None = None
+    ) -> None:
+        self.sent_documents.append((chat_id, file_path.name, caption))
 
 
 class TelegramBotTest(unittest.TestCase):
@@ -154,6 +161,10 @@ class TelegramBotTest(unittest.TestCase):
             },
             {
                 "update_id": 4,
+                "message": {"message_id": 15, "chat": {"id": 42}, "text": "/continue"},
+            },
+            {
+                "update_id": 5,
                 "message": {
                     "message_id": 12,
                     "chat": {"id": 42},
@@ -161,7 +172,7 @@ class TelegramBotTest(unittest.TestCase):
                 },
             },
             {
-                "update_id": 5,
+                "update_id": 6,
                 "message": {
                     "message_id": 14,
                     "chat": {"id": 42},
@@ -169,7 +180,7 @@ class TelegramBotTest(unittest.TestCase):
                 },
             },
             {
-                "update_id": 6,
+                "update_id": 7,
                 "message": {
                     "message_id": 13,
                     "chat": {"id": 42},
@@ -184,10 +195,10 @@ class TelegramBotTest(unittest.TestCase):
 
         processed = bot.poll_once()
 
-        self.assertEqual(processed, 6)
+        self.assertEqual(processed, 7)
         state = json.loads(telegram_bot.TELEGRAM_STATE_FILE.read_text(encoding="utf-8"))
         self.assertTrue(state["notifications_enabled"])
-        self.assertEqual(state["last_update_id"], 6)
+        self.assertEqual(state["last_update_id"], 7)
 
         inbox_lines = telegram_bot.TELEGRAM_INBOX_FILE.read_text(
             encoding="utf-8"
@@ -196,13 +207,15 @@ class TelegramBotTest(unittest.TestCase):
         kinds = [record["kind"] for record in records]
         scopes = [record.get("scope", "-") for record in records]
         self.assertEqual(
-            kinds, ["command", "command", "command", "text", "text", "document"]
+            kinds,
+            ["command", "command", "command", "text", "text", "text", "document"],
         )
-        self.assertEqual(scopes, ["-", "-", "-", "step", "run", "run"])
+        self.assertEqual(scopes, ["-", "-", "-", "step", "step", "run", "run"])
         self.assertTrue((telegram_bot.TELEGRAM_FILE_DIR / "13-notes.txt").exists())
 
         context = load_feedback_context(limit=5)
         self.assertIn("lighter baseline", context)
+        self.assertIn("Continue to the next full iteration", context)
         self.assertIn("scope=step", context)
         self.assertIn("scope=run", context)
         self.assertIn("13-notes.txt", context)
@@ -217,6 +230,10 @@ class TelegramBotTest(unittest.TestCase):
                 (42, "mylab notifications enabled."),
                 (
                     42,
+                    "Queued the next iteration using the latest run context.",
+                ),
+                (
+                    42,
                     "Feedback saved for the next iteration. Use /run <text> for persistent run guidance.",
                 ),
                 (
@@ -224,6 +241,95 @@ class TelegramBotTest(unittest.TestCase):
                     "Run guidance saved. It will be carried into future iterations.",
                 ),
                 (42, "File saved: 13-notes.txt"),
+            ],
+        )
+
+    def test_push_summary_to_telegram_sends_text_and_documents(self) -> None:
+        config_path = self.root / "config.toml"
+        config_path.write_text(
+            "\n".join(
+                [
+                    "[telegram]",
+                    'bot_token = "123:abc"',
+                    "",
+                    "[notifications]",
+                    'urls = ["tgram://123:abc/42"]',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        summary_path = self.root / "run" / "summaries" / "plan-001.summary.md"
+        result_path = self.root / "run" / "results" / "plan-001.result.md"
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_content = "\n".join(
+            [
+                "# Summary Metadata",
+                "- run_id: run",
+                "- plan_id: plan-001",
+                "",
+                "# Outcome",
+                "Validation accuracy reached 91.2%.",
+                "",
+                "# Evidence",
+                "1. results/metrics.json",
+                "",
+                "# Artifacts",
+                "1. summaries/plan-001.summary.md",
+                "",
+                "# Next Iteration",
+                "1. Compare against the lighter baseline.",
+            ]
+        )
+        summary_path.write_text(summary_content, encoding="utf-8")
+        result_path.write_text("# Outcome\nDetailed result\n", encoding="utf-8")
+        run_dir = self.root / "run"
+        (run_dir / "manifests").mkdir(parents=True, exist_ok=True)
+        from mylab.domain import RunManifest
+        from mylab.storage.runs import save_manifest, init_run_dirs
+
+        paths = init_run_dirs(run_dir)
+        save_manifest(
+            paths,
+            RunManifest(
+                run_id="run-001",
+                repo_path=str(self.root / "repo"),
+                source_branch="main",
+                goal_file=str(self.root / "goal.txt"),
+                runs_env_var="MYLAB_RUNS_DIR",
+                notify_urls=["tgram://123:abc/42"],
+            ),
+        )
+
+        original_config = telegram_bot.CONFIG_FILE
+        original_client = telegram_bot.TelegramBotClient
+        try:
+            telegram_bot.CONFIG_FILE = config_path
+            fake_bot = FakeTelegramBot(
+                TelegramSettings(bot_token="123:abc", allowed_chat_ids=[42]),
+                [],
+            )
+            telegram_bot.TelegramBotClient = lambda settings: fake_bot
+            sent = push_summary_to_telegram(
+                run_dir,
+                "plan-001",
+                summary_path,
+                summary_content=summary_content,
+            )
+        finally:
+            telegram_bot.CONFIG_FILE = original_config
+            telegram_bot.TelegramBotClient = original_client
+
+        self.assertTrue(sent)
+        self.assertEqual(len(fake_bot.sent_messages), 1)
+        self.assertIn("Reply /continue to proceed", fake_bot.sent_messages[0][1])
+        self.assertIn("Validation accuracy reached 91.2%", fake_bot.sent_messages[0][1])
+        self.assertEqual(
+            fake_bot.sent_documents,
+            [
+                (42, "plan-001.summary.md", "plan-001 summary"),
+                (42, "plan-001.result.md", "plan-001 result"),
             ],
         )
 

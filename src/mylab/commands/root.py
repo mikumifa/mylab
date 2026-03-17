@@ -90,18 +90,6 @@ def resolve_flow_control(
     return resolved_mode, resolved_limit
 
 
-def build_step_confirmation(run_dir: Path):
-    def confirm(completed_iterations: int) -> bool:
-        prompt = (
-            f"Run {run_dir.name} completed {completed_iterations} iteration(s). "
-            "Continue to the next iteration? [y/N]: "
-        )
-        answer = input(prompt).strip().lower()
-        return answer in {"y", "yes"}
-
-    return confirm
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mylab",
@@ -493,16 +481,10 @@ def cmd_poll_run(args: argparse.Namespace) -> int:
         limit=args.limit,
         prompt_if_missing=True,
     )
-    confirm_continue = (
-        build_step_confirmation(run_dir)
-        if mode == FLOW_MODE_STEP and sys.stdin.isatty()
-        else None
-    )
     outputs = SerialFlowRunner(
         run_dir,
         allow_exec=args.allow_exec,
         mode=mode,
-        confirm_continue=confirm_continue,
     ).run_until_blocked(limit=limit)
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
@@ -545,16 +527,10 @@ def cmd_run_flow(args: argparse.Namespace) -> int:
         limit=args.limit,
         prompt_if_missing=True,
     )
-    confirm_continue = (
-        build_step_confirmation(run_dir)
-        if mode == FLOW_MODE_STEP and sys.stdin.isatty()
-        else None
-    )
     outputs = SerialFlowRunner(
         run_dir,
         allow_exec=True,
         mode=mode,
-        confirm_continue=confirm_continue,
     ).run_until_blocked(limit=limit)
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
