@@ -141,7 +141,9 @@ class NotificationServiceTest(unittest.TestCase):
                 (),
                 {"enabled": True},
             )()
-            notifications_module.send_feishu_message = lambda settings, message: True
+            notifications_module.send_feishu_message = (
+                lambda settings, *, title="mylab", message: True
+            )
             with tempfile.TemporaryDirectory(prefix="mylab-notify-") as temp_dir:
                 run_dir = Path(temp_dir) / "run-001"
                 init_run_dirs(run_dir)
@@ -182,7 +184,10 @@ class NotificationServiceTest(unittest.TestCase):
                 {"enabled": True},
             )()
             notifications_module.send_feishu_message = (
-                lambda settings, message: sent_messages.append(message) or True
+                lambda settings, *, title="mylab", message: sent_messages.append(
+                    f"{title}\n{message}"
+                )
+                or True
             )
             with tempfile.TemporaryDirectory(prefix="mylab-notify-") as temp_dir:
                 run_dir = Path(temp_dir) / "run-001"
@@ -198,7 +203,7 @@ class NotificationServiceTest(unittest.TestCase):
                 self.assertTrue(sent)
                 self.assertEqual(
                     sent_messages,
-                    ["mylab summary ready\n\nplan-001 completed"],
+                    ["mylab summary ready\nplan-001 completed"],
                 )
         finally:
             notifications_module.send_feishu_message = original_sender

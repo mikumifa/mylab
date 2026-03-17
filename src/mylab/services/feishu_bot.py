@@ -243,8 +243,37 @@ def _post_json(url: str, payload: dict[str, object], headers: dict[str, str]) ->
         return json.loads(response.read().decode("utf-8"))
 
 
-def _webhook_send(webhook_url: str, message: str) -> bool:
-    payload = {"msg_type": "text", "content": {"text": message}}
+def _trim_feishu_markdown(text: str, *, limit: int = 1500) -> str:
+    return text.strip()[:limit]
+
+
+def build_feishu_post_content(
+    title: str,
+    message: str,
+    *,
+    locale: str = "zh_cn",
+) -> dict[str, object]:
+    body = _trim_feishu_markdown(message)
+    rows: list[list[dict[str, str]]] = []
+    if body:
+        rows.append([{"tag": "md", "text": body}])
+    else:
+        rows.append([{"tag": "text", "text": "-"}])
+    return {
+        locale: {
+            "title": title.strip()[:100] or "mylab",
+            "content": rows,
+        }
+    }
+
+
+def _webhook_send(webhook_url: str, title: str, message: str) -> bool:
+    payload = {
+        "msg_type": "post",
+        "content": {
+            "post": build_feishu_post_content(title, message),
+        },
+    }
     response = _post_json(
         webhook_url,
         payload,
@@ -267,7 +296,7 @@ def _tenant_access_token(settings: FeishuSettings) -> str:
     return token.strip()
 
 
-def _api_send(settings: FeishuSettings, message: str) -> bool:
+def _api_send(settings: FeishuSettings, title: str, message: str) -> bool:
     if not settings.chat_id:
         raise ValueError("feishu chat_id is required")
     token = _tenant_access_token(settings)
@@ -275,8 +304,11 @@ def _api_send(settings: FeishuSettings, message: str) -> bool:
         "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
         {
             "receive_id": settings.chat_id,
-            "msg_type": "text",
-            "content": json.dumps({"text": message}, ensure_ascii=False),
+            "msg_type": "post",
+            "content": json.dumps(
+                build_feishu_post_content(title, message),
+                ensure_ascii=False,
+            ),
         },
         {
             "Content-Type": "application/json; charset=utf-8",
@@ -291,17 +323,22 @@ def send_feishu_test_message(
     *,
     message: str = "This is a test notification from mylab bot test.",
 ) -> bool:
-    return send_feishu_message(settings, message=message)
+    return send_feishu_message(
+        settings,
+        title="mylab bot test",
+        message=message,
+    )
 
 
 def send_feishu_message(
     settings: FeishuSettings,
     *,
+    title: str = "mylab",
     message: str,
 ) -> bool:
     sent = False
     if settings.webhook_url:
-        sent = _webhook_send(settings.webhook_url, message) or sent
+        sent = _webhook_send(settings.webhook_url, title, message) or sent
     if settings.bidirectional_enabled:
-        sent = _api_send(settings, message) or sent
+        sent = _api_send(settings, title, message) or sent
     return sent

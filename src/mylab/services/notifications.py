@@ -173,14 +173,14 @@ class NotificationClient:
     def notify(self, title: str, body: str, *, notify_type: str = "info") -> bool:
         if not self._ensure_ready():
             return False
-        message = f"{title}\n\n{body}".strip()
         feishu_ok = True
         if self.feishu_settings.enabled:
             try:
                 feishu_ok = bool(
                     send_feishu_message(
                         self.feishu_settings,
-                        message=message[:4000],
+                        title=title,
+                        message=body[:4000],
                     )
                 )
             except Exception as exc:

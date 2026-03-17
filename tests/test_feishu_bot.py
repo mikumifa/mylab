@@ -1,19 +1,32 @@
 from __future__ import annotations
 
 import sys
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import mylab.services.feishu_bot as feishu_bot
 from mylab.services.feishu_bot import (
+    build_feishu_post_content,
     interactive_feishu_setup,
     load_feishu_settings,
+    send_feishu_message,
 )
 
 
 class FeishuBotTest(unittest.TestCase):
+    def test_build_feishu_post_content_uses_post_markdown(self) -> None:
+        content = build_feishu_post_content(
+            "mylab summary ready",
+            "**done**\n[link](https://example.com)",
+        )
+        self.assertEqual(content["zh_cn"]["title"], "mylab summary ready")
+        self.assertEqual(content["zh_cn"]["content"][0][0]["tag"], "md")
+        self.assertIn("**done**", content["zh_cn"]["content"][0][0]["text"])
+
     def test_load_feishu_settings_from_section(self) -> None:
         with tempfile.TemporaryDirectory(prefix="mylab-feishu-") as temp_dir:
             config_path = Path(temp_dir) / "config.toml"
@@ -123,6 +136,38 @@ class FeishuBotTest(unittest.TestCase):
             self.assertFalse(settings.bidirectional_control_enabled)
             self.assertIsNone(settings.app_id)
             self.assertIsNone(settings.webhook_url)
+
+    def test_send_feishu_message_uses_post_payloads(self) -> None:
+        calls: list[tuple[str, dict[str, object], dict[str, str]]] = []
+        original_post_json = feishu_bot._post_json
+        try:
+            feishu_bot._post_json = lambda url, payload, headers: (
+                calls.append((url, payload, headers)) or {"code": 0}
+            )
+            sent = send_feishu_message(
+                feishu_bot.FeishuSettings(
+                    webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/abc"
+                ),
+                title="mylab bot test",
+                message="**hello**",
+            )
+        finally:
+            feishu_bot._post_json = original_post_json
+
+        self.assertTrue(sent)
+        self.assertEqual(calls[0][1]["msg_type"], "post")
+        self.assertEqual(
+            calls[0][1]["content"]["post"]["zh_cn"]["title"],
+            "mylab bot test",
+        )
+        self.assertEqual(
+            calls[0][1]["content"]["post"]["zh_cn"]["content"][0][0]["tag"],
+            "md",
+        )
+        self.assertEqual(
+            calls[0][1]["content"]["post"]["zh_cn"]["content"][0][0]["text"],
+            "**hello**",
+        )
 
 
 if __name__ == "__main__":
