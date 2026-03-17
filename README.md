@@ -30,7 +30,7 @@ src/mylab/
   - 更新仓库级共享资产和 `plans/` 索引
 - 所有中间结果统一保存在环境变量 `MYLAB_RUNS_DIR` 指定的位置；未设置时默认为当前目录下的 `.mylab_runs/`。
 - 如果 run 目录落在论文实验仓库内部，程序会自动把对应路径写入该仓库的 `.gitignore`，避免实验产物被 Git 跟踪。
-- 新 run 开始前，目标仓库必须已有提交且工作区干净；如果缺少对运行目录的 `.gitignore` 条目，`mylab` 会自动补上并创建一条只包含该修改的提交。
+- 新 run 开始前，目标仓库必须已有提交且工作区干净；bootstrap 阶段会自动补齐运行目录 `.gitignore` 条目，并把仓库级 `mylab-job-monitor` skill 安装到 `.codex/skills/`。这些 bootstrap 资产会被自动提交一次，方便后续 Codex 在该仓库直接复用。
 - 所有迭代共享一个仓库级资产文件，沉淀“怎么跑、注意事项、代码位置、重复坑点”等长期信息。
 - `plans/index.md` 和 `plans/index.jsonl` 维护每轮最短摘要，便于后续模型先做快速检索。
 - 通知层基于 Apprise，单次接入即可复用 Telegram、Discord、Slack、邮件、Webhook 等多个平台，配置固定放在用户目录 `~/.mylab/config.toml`。

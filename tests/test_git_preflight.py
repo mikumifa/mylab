@@ -95,12 +95,24 @@ class GitPreflightTest(unittest.TestCase):
         )
 
         gitignore = (self.repo / ".gitignore").read_text(encoding="utf-8")
+        skill_path = self.repo / ".codex" / "skills" / "mylab-job-monitor" / "SKILL.md"
+        reference_path = (
+            self.repo
+            / ".codex"
+            / "skills"
+            / "mylab-job-monitor"
+            / "references"
+            / "complete-example.md"
+        )
         head_after = run_git(self.repo, "rev-parse", "HEAD").stdout.strip()
         commit_subject = run_git(self.repo, "log", "-1", "--pretty=%s").stdout.strip()
 
         self.assertIn("/.mylab_runs/", gitignore)
+        self.assertTrue(skill_path.exists())
+        self.assertTrue(reference_path.exists())
+        self.assertIn("mylab tool start-job", skill_path.read_text(encoding="utf-8"))
         self.assertNotEqual(head_before, head_after)
-        self.assertEqual(commit_subject, "chore: ignore mylab run artifacts")
+        self.assertEqual(commit_subject, "chore: bootstrap mylab repo assets")
         self.assertEqual(manifest.original_branch, "main")
         self.assertEqual(manifest.original_head_commit, head_after)
 

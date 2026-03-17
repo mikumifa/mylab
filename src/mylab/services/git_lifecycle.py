@@ -6,6 +6,7 @@ from mylab.domain import RunManifest
 from mylab.gittools import GitManager
 from mylab.logging import logger
 from mylab.services.repo_ignore import ensure_run_dir_ignored
+from mylab.services.repo_skills import ensure_repo_skills_installed
 from mylab.storage import append_jsonl
 from mylab.storage.runs import init_run_dirs, save_manifest
 from mylab.utils import (
@@ -34,17 +35,23 @@ def prepare_repo_for_run(
     original_branch = detect_git_branch(repo_path)
     original_head = git.head_commit()
     ignored_added, ignored_entry = ensure_run_dir_ignored(repo_path, run_dir)
-    if ignored_added:
-        logger.info("Committing gitignore update for {}", ignored_entry)
-        git.add(".gitignore")
-        committed_head = git.commit("chore: ignore mylab run artifacts")
+    installed_skill_files = ensure_repo_skills_installed(repo_path)
+    if ignored_added or installed_skill_files:
+        staged_paths: list[str] = []
+        if ignored_added:
+            staged_paths.append(".gitignore")
+        staged_paths.extend(installed_skill_files)
+        logger.info("Committing bootstrap repo assets for {}", repo_path)
+        git.add(*staged_paths)
+        committed_head = git.commit("chore: bootstrap mylab repo assets")
         append_jsonl(
             log_path,
             {
                 "ts": utc_now(),
-                "event": "run_gitignore_committed",
+                "event": "run_repo_assets_committed",
                 "original_branch": original_branch,
                 "ignored_entry": ignored_entry,
+                "installed_skill_files": installed_skill_files,
                 "head_commit_before": original_head,
                 "head_commit_after": committed_head,
             },
@@ -58,6 +65,7 @@ def prepare_repo_for_run(
             "original_branch": original_branch,
             "original_head_commit": original_head,
             "ignored_entry": ignored_entry,
+            "installed_skill_files": installed_skill_files,
         },
     )
     return original_branch, original_head
