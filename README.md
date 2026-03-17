@@ -176,7 +176,7 @@ mode = "limit"
 limit = 100
 ```
 
-如果希望启用 Telegram bot 和通知，先在用户目录写配置：
+如果希望启用 Telegram bot、飞书 webhook 机器人和通知，先在用户目录写配置：
 
 ```toml
 # ~/.mylab/config.toml
@@ -192,6 +192,9 @@ limit = 100
 
 [notifications]
 urls = ["tgram://<bot_token>/<chat_id>"]
+
+[feishu]
+webhook_url = "https://open.feishu.cn/open-apis/bot/v2/hook/<token>"
 ```
 
 如果希望交互式配置 Telegram，直接运行：
@@ -199,6 +202,14 @@ urls = ["tgram://<bot_token>/<chat_id>"]
 ```bash
 mylab bot telegram
 ```
+
+如果只想配置飞书 webhook 机器人，直接运行：
+
+```bash
+mylab bot feishu
+```
+
+飞书交互式配置会询问默认检查命令，以及是否启用双向控制；如果启用双向控制，还会继续询问 `app_id`、`app_secret` 和 `chat_id`。如果当前还没有 webhook，它也会额外询问一次，用于现有通知链路。
 
 `Telegram` 交互式配置现在只强制要求 `bot_token`，其余字段都可以直接使用默认值；只有在你选择高级配置时，才会继续询问 chat id、轮询间隔、反馈上下文长度和通知 chat id。
 
@@ -233,12 +244,15 @@ mylab run \
 
 如果 `~/.mylab/config.toml` 不存在，`mylab` 会直接跳过通知发送，Telegram bot 轮询命令会报配置缺失。
 
-如果希望一次配置多个平台，建议仍然通过同一个用户级配置接入 Apprise：
+如果希望一次配置多个平台，建议仍然通过同一个用户级配置接入 Apprise；飞书也可以直接把 webhook URL 放进 `notifications.urls`：
 
 ```toml
 # ~/.mylab/config.toml
 [notifications]
-urls = ["tgram://<bot_token>/<chat_id>"]
+urls = [
+  "tgram://<bot_token>/<chat_id>",
+  "https://open.feishu.cn/open-apis/bot/v2/hook/<token>",
+]
 config_path = "/path/to/apprise.yaml"
 tag = "mylab"
 ```

@@ -7,6 +7,7 @@ from typing import Any
 
 from mylab.config import CONFIG_FILE
 from mylab.logging import logger
+from mylab.services.feishu_bot import load_feishu_settings
 from mylab.storage import append_jsonl
 from mylab.storage.runs import load_manifest
 from mylab.services.telegram_bot import telegram_notifications_enabled
@@ -63,6 +64,9 @@ def resolve_notification_settings(
     )
     raw_tag = section.get("tag")
     tag = str(raw_tag).strip() if isinstance(raw_tag, str) and raw_tag.strip() else None
+    feishu_settings = load_feishu_settings(config_path)
+    if feishu_settings.enabled and feishu_settings.webhook_url not in urls:
+        urls.insert(0, feishu_settings.webhook_url)
     return NotificationSettings(urls=urls, config_path=notify_config, tag=tag)
 
 

@@ -32,13 +32,52 @@ class FakeNotificationClient:
 
 
 class BotTestCommandTest(unittest.TestCase):
+    def test_cmd_bot_test_sends_feishu_message(self) -> None:
+        original_feishu_settings = root_module.load_feishu_settings
+        original_feishu_sender = root_module.send_feishu_test_message
+        original_telegram_settings = root_module.load_telegram_settings
+        original_notification_settings = root_module.resolve_notification_settings
+        try:
+            root_module.load_feishu_settings = (
+                lambda config_path=None: type("FeishuSettings", (), {"enabled": True})()
+            )
+            called: list[str] = []
+            root_module.send_feishu_test_message = (
+                lambda settings, message="": called.append(message) or True
+            )
+            root_module.load_telegram_settings = lambda config_path=None: TelegramSettings(
+                bot_token=None,
+                allowed_chat_ids=[],
+            )
+            root_module.resolve_notification_settings = (
+                lambda config_path=None: NotificationSettings(urls=[])
+            )
+
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = root_module.cmd_bot_test(argparse.Namespace(config_path=None))
+        finally:
+            root_module.load_feishu_settings = original_feishu_settings
+            root_module.send_feishu_test_message = original_feishu_sender
+            root_module.load_telegram_settings = original_telegram_settings
+            root_module.resolve_notification_settings = original_notification_settings
+
+        output = buffer.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("feishu bot ok", output)
+        self.assertEqual(called, ["This is a test notification from mylab bot test."])
+
     def test_cmd_bot_test_succeeds_for_configured_integrations(self) -> None:
+        original_feishu_settings = root_module.load_feishu_settings
         original_telegram_settings = root_module.load_telegram_settings
         original_telegram_client = root_module.TelegramBotClient
         original_notification_settings = root_module.resolve_notification_settings
         original_notification_client = root_module.NotificationClient
         original_notifications_enabled = root_module.telegram_notifications_enabled
         try:
+            root_module.load_feishu_settings = (
+                lambda config_path=None: type("FeishuSettings", (), {"enabled": False})()
+            )
             root_module.load_telegram_settings = lambda config_path=None: TelegramSettings(
                 bot_token="123:abc",
                 allowed_chat_ids=[42],
@@ -56,6 +95,7 @@ class BotTestCommandTest(unittest.TestCase):
                     argparse.Namespace(config_path=None)
                 )
         finally:
+            root_module.load_feishu_settings = original_feishu_settings
             root_module.load_telegram_settings = original_telegram_settings
             root_module.TelegramBotClient = original_telegram_client
             root_module.resolve_notification_settings = original_notification_settings
@@ -68,9 +108,13 @@ class BotTestCommandTest(unittest.TestCase):
         self.assertIn("notification endpoints ok", output)
 
     def test_cmd_bot_test_fails_when_nothing_is_configured(self) -> None:
+        original_feishu_settings = root_module.load_feishu_settings
         original_telegram_settings = root_module.load_telegram_settings
         original_notification_settings = root_module.resolve_notification_settings
         try:
+            root_module.load_feishu_settings = (
+                lambda config_path=None: type("FeishuSettings", (), {"enabled": False})()
+            )
             root_module.load_telegram_settings = lambda config_path=None: TelegramSettings(
                 bot_token=None,
                 allowed_chat_ids=[],
@@ -82,6 +126,7 @@ class BotTestCommandTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no bot integrations are configured"):
                 root_module.cmd_bot_test(argparse.Namespace(config_path=None))
         finally:
+            root_module.load_feishu_settings = original_feishu_settings
             root_module.load_telegram_settings = original_telegram_settings
             root_module.resolve_notification_settings = original_notification_settings
 

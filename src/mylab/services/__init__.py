@@ -1,5 +1,11 @@
 from .assets import load_repo_asset, repo_asset_path, update_repo_asset
 from .executor import prepare_executor, run_executor
+from .feishu_bot import (
+    configure_feishu_bot,
+    interactive_feishu_setup,
+    load_feishu_settings,
+    send_feishu_test_message,
+)
 from .job_monitor import (
     tail_job,
     wait_for_job,
@@ -44,13 +50,16 @@ from .run_control import (
 
 __all__ = [
     "bootstrap_run",
+    "configure_feishu_bot",
     "create_initial_plan",
     "create_iterated_plan",
     "default_deliverables",
     "format_repo_report",
     "heuristic_questions",
     "heuristic_steps",
+    "interactive_feishu_setup",
     "load_repo_asset",
+    "load_feishu_settings",
     "load_notification_settings",
     "make_run_id",
     "NotificationClient",
@@ -80,4 +89,5 @@ __all__ = [
     "FLOW_MODE_UNLIMIT",
     "load_run_control_settings",
     "prompt_for_flow_mode",
+    "send_feishu_test_message",
 ]

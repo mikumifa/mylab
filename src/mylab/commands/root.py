@@ -19,8 +19,10 @@ from mylab.services import (
     bootstrap_run,
     create_initial_plan,
     create_iterated_plan,
+    interactive_feishu_setup,
     interactive_telegram_setup,
     format_repo_report,
+    load_feishu_settings,
     load_telegram_settings,
     load_run_control_settings,
     make_run_id,
@@ -28,6 +30,7 @@ from mylab.services import (
     prompt_for_flow_mode,
     resolve_notification_settings,
     run_executor,
+    send_feishu_test_message,
     start_job,
     tail_job,
     telegram_notifications_enabled,
@@ -199,7 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
     bot_cmd = subparsers.add_parser(
         "bot",
         help="Interactive bot configuration commands.",
-        description="Configure chat integrations such as Telegram.",
+        description="Configure chat integrations such as Telegram or Feishu.",
         formatter_class=HELP_FORMATTER,
     )
     bot_subparsers = bot_cmd.add_subparsers(dest="bot_command", required=True)
@@ -223,6 +226,18 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=HELP_FORMATTER,
     )
     bot_test_cmd.add_argument(
+        "--config-path",
+        type=Path,
+        help="Optional config path override. Defaults to ~/.mylab/config.toml.",
+    )
+
+    bot_feishu_cmd = bot_subparsers.add_parser(
+        "feishu",
+        help="Interactively configure Feishu webhook bot settings.",
+        description="Prompt for Feishu webhook settings and write them into ~/.mylab/config.toml.",
+        formatter_class=HELP_FORMATTER,
+    )
+    bot_feishu_cmd.add_argument(
         "--config-path",
         type=Path,
         help="Optional config path override. Defaults to ~/.mylab/config.toml.",
@@ -782,6 +797,12 @@ def cmd_bot_telegram(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bot_feishu(args: argparse.Namespace) -> int:
+    path = interactive_feishu_setup(config_path=args.config_path)
+    print(path)
+    return 0
+
+
 def cmd_bot_test(args: argparse.Namespace) -> int:
     config_path = args.config_path or None
     ok = True
@@ -801,6 +822,28 @@ def cmd_bot_test(args: argparse.Namespace) -> int:
             ok = False
     else:
         print("telegram bot not configured")
+
+    feishu_settings = load_feishu_settings(config_path)
+    if feishu_settings.enabled:
+        tested += 1
+        try:
+            if send_feishu_test_message(
+                feishu_settings,
+                message="This is a test notification from mylab bot test.",
+            ):
+                print("feishu bot ok")
+            else:
+                emit_progress(
+                    "[error]",
+                    "feishu bot test failed; check webhook url or app credentials",
+                    color="red",
+                )
+                ok = False
+        except Exception as exc:
+            emit_progress("[error]", f"feishu bot test failed: {exc}", color="red")
+            ok = False
+    else:
+        print("feishu bot not configured")
 
     notification_settings = resolve_notification_settings(config_path)
     if notification_settings.enabled:
@@ -844,7 +887,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     interrupt_run_dir: Path | None = None
     commands = {
-        "bot": cmd_bot_telegram,
         "run": cmd_run_flow,
         "queue-iteration": cmd_queue_iteration,
     }
@@ -873,7 +915,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "bot":
             if args.bot_command == "test":
                 return cmd_bot_test(args)
-            return commands[args.command](args)
+            if args.bot_command == "telegram":
+                return cmd_bot_telegram(args)
+            if args.bot_command == "feishu":
+                return cmd_bot_feishu(args)
+            raise RuntimeError(f"unsupported bot command: {args.bot_command}")
         return commands[args.command](args)
     except KeyboardInterrupt:
         if interrupt_run_dir is not None:

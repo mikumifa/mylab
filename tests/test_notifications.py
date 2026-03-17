@@ -122,6 +122,27 @@ class NotificationServiceTest(unittest.TestCase):
             else:
                 sys.modules["apprise"] = original_module
 
+    def test_resolve_notification_settings_includes_feishu_webhook(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mylab-config-") as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[feishu]",
+                        'webhook_url = "https://open.feishu.cn/open-apis/bot/v2/hook/abc"',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            settings = resolve_notification_settings(config_path)
+
+            self.assertEqual(
+                settings.urls,
+                ["https://open.feishu.cn/open-apis/bot/v2/hook/abc"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
