@@ -40,7 +40,7 @@ def format_for_manifest(run_dir: Path) -> Path:
     manifest = load_manifest(run_dir)
     report = format_repo_report(Path(manifest.repo_path), run_dir)
     append_jsonl(
-        run_dir / "logs" / "format-agent.jsonl",
+        run_dir / "logs" / "iteration-agent.jsonl",
         {
             "ts": utc_now(),
             "level": "INFO",

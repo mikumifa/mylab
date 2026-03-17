@@ -210,7 +210,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_cmd = tool_subparsers.add_parser(
         "run-executor",
-        help="Run the prepared executor agent via codex.",
+        help="Run the prepared plan via codex.",
         description="Directly execute a previously prepared Codex command for the selected plan.",
         formatter_class=HELP_FORMATTER,
     )

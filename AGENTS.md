@@ -7,50 +7,69 @@
 - 所有实验运行产物必须落在 `MYLAB_RUNS_DIR` 指定目录下。
 - 不允许把输出目录、日志目录或中间结果目录硬编码到论文仓库内部。
 - `plan.md`、`summary.md`、`jsonl` 日志格式必须保持稳定，方便下一轮 agent 继续消费。
-- 每个 agent 的工作都必须写结构化日志到对应的 `logs/*.jsonl`。
+- 单个迭代 agent 的工作必须持续写结构化日志到稳定文件，默认是 `logs/iteration-agent.jsonl`。
 - 大流程优先通过队列推进，不要默认要求用户手工逐条运行所有阶段命令。
 - 如果修改实验仓库代码，优先保证：
   1. 输出根目录可配置
   2. 运行脚本可复用
   3. 原始 stdout/stderr 可以保留
+- 必须维护仓库级共享资产，记录跨迭代可复用的信息，例如：
+  - 这个仓库怎么跑
+  - 输出目录和日志相关注意事项
+  - 重要功能代码位置和结构说明
+  - 已验证有效或已知失败的做法
+- 必须维护 `plans/` 目录下的短索引，方便下一轮模型先看最短摘要再决定读哪些完整交付。
 
-## Agent Roles
+## Single Agent Model
 
-### format-agent
+### iteration-agent
 
-- 目标：检查实验仓库是否满足实验可编排要求。
-- 重点：
-  - 输出路径是否可配置
-  - 日志是否可保留
-  - 中间结果是否有统一根目录
+- 目标：围绕同一个 run 做“计划 -> 执行 -> 总结 -> 下一轮输入”的闭环。
+- 这个 agent 接受两类输入：
+  - 首轮目标，例如用户目标或 `lab.md`
+  - 上一轮迭代交付，例如 `plan.md`、`summary.md`、结果文件、结构化日志、共享资产、plan 索引
+- 这个 agent 在每轮内部要完成：
+  1. 先检查实验仓库是否满足可编排要求
+  2. 生成新的 `plan.md`
+  3. 准备并执行该 plan
+  4. 生成 `summary.md`
+  5. 回写共享资产和 `plans/` 索引
+- 这个 agent 的迭代关系像 RNN：
+  - 当前轮输出会成为下一轮输入
+  - 下一轮会复用前一轮交付来设计新架构、补跑实验、增加更特别的分析
 
-### agent1-planner
+## Stable Outputs
 
-- 目标：从用户目标或 `lab.md` 生成首轮 `plan.md`。
-- 输出：`plans/plan-XXX.md`
+- 每轮必须产出：
+  - `plans/plan-XXX.md`
+  - `summaries/plan-XXX.summary.md`
+  - `results/plan-XXX.result.md`
+  - `commands/plan-XXX.executor.sh`
+  - `logs/iteration-agent.jsonl`
+- `plans/` 目录额外维护：
+  - `plans/index.md`
+  - `plans/index.jsonl`
+- 全局共享资产维护在 runs 根目录下的仓库级资产文件中，不跟单个 plan 绑定。
 
-### agent2-iterator
+## Shared Asset
 
-- 目标：基于上一轮计划、执行结果和用户反馈迭代下一轮 plan。
-- 输出：新的 `plans/plan-XXX.md`
+- 共享资产是面向“仓库级共性知识”的长期记忆，不是某一轮计划的临时备注。
+- 共享资产至少应包含：
+  - 运行方式
+  - 输出根目录约束
+  - 关键脚本和代码位置
+  - 典型坑点
+  - 已验证可复用的命令或流程
+- 每轮总结之后都应该更新它，但只能沉淀可复用、可迁移的信息。
 
-### agent3-preparer
+## Iteration Contract
 
-- 目标：为执行 agent 生成 prompt、命令脚本和目标产物路径。
-- 输出：
-  - `prompts/*.executor.prompt.md`
-  - `commands/*.executor.sh`
-
-### agent4-runner
-
-- 目标：调用 `codex exec` 长时间执行 plan。
-- 约束：
-  - 尽量使用较小模型
-  - 优先落可复用脚本，再跑长任务
-  - 结果和日志必须完整保留
-  - 默认由队列轮询触发，只有显式允许时才真的执行
-
-### summary-agent
-
-- 目标：把本轮结果整理为标准总结，便于下一轮继续。
-- 输出：`summaries/*.summary.md`
+- 首轮：
+  - 从用户目标生成 `plan-001.md`
+  - 执行后生成总结
+  - 回写共享资产与 plan 索引
+- 后续轮：
+  - 读取上一轮以及更早轮的交付
+  - 在共享资产和 plan 索引的帮助下快速定位上下文
+  - 在已有结论基础上继续设计、实现、实验或分析
+  - 生成新的 `plan-XXX.md` 并继续闭环

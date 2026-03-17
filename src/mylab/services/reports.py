@@ -4,12 +4,12 @@ from pathlib import Path
 
 from mylab.config import SUMMARY_HEADINGS
 from mylab.logging import logger
-from mylab.services.experience import update_repo_experience
+from mylab.services.assets import update_repo_asset, upsert_plan_index_record
 from mylab.storage import append_jsonl, write_text
 from mylab.utils import utc_now
 
 
-def should_update_experience(outcome: str, next_iteration: list[str]) -> bool:
+def should_update_repo_asset(outcome: str, next_iteration: list[str]) -> bool:
     normalized_outcome = outcome.strip().lower()
     if "placeholder" in normalized_outcome:
         return False
@@ -76,7 +76,7 @@ def write_summary(
     summary_path = run_dir / "summaries" / f"{plan_id}.summary.md"
     write_text(summary_path, summary)
     append_jsonl(
-        run_dir / "logs" / "summary-agent.jsonl",
+        run_dir / "logs" / "iteration-agent.jsonl",
         {
             "ts": utc_now(),
             "level": "INFO",
@@ -84,8 +84,16 @@ def write_summary(
             "plan_id": plan_id,
         },
     )
-    if should_update_experience(outcome, next_iteration):
-        update_repo_experience(
+    upsert_plan_index_record(
+        run_dir=run_dir,
+        plan_id=plan_id,
+        parent_plan_id=None,
+        status=status,
+        short_summary=outcome,
+        artifacts=[str(summary_path), *artifacts],
+    )
+    if should_update_repo_asset(outcome, next_iteration):
+        update_repo_asset(
             run_dir=run_dir,
             plan_id=plan_id,
             status=status,

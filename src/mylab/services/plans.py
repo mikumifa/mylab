@@ -6,7 +6,7 @@ from pathlib import Path
 from mylab.config import PLAN_HEADINGS, RUNS_ENV_VAR
 from mylab.domain import RunManifest, RunPaths
 from mylab.logging import logger
-from mylab.services.experience import load_repo_experience
+from mylab.services.assets import load_repo_asset, upsert_plan_index_record
 from mylab.services.repo_ignore import ensure_run_dir_ignored
 from mylab.storage import append_jsonl, read_text, write_text
 from mylab.storage.runs import save_manifest
@@ -151,11 +151,11 @@ def bootstrap_run(
 
 def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
-    inherited_experience = load_repo_experience(paths.root)
+    inherited_asset = load_repo_asset(paths.root)
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     logger.info("Creating initial plan {}", plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
-    prompt_path = paths.prompts / f"{plan_id}.planner.prompt.md"
+    prompt_path = paths.prompts / f"{plan_id}.plan.prompt.md"
     content = render_plan_markdown(
         plan_id=plan_id,
         parent_plan_id=None,
@@ -175,15 +175,15 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
         prompt_path,
         "\n".join(
             [
-                f"You are planner agent 1 for run {manifest.run_id}.",
-                "Refine the plan without changing the required markdown headings.",
+                f"You are the iteration agent for run {manifest.run_id}.",
+                "Draft the first plan without changing the required markdown headings.",
                 f"Repository: {manifest.repo_path}",
                 f"Source branch: {manifest.source_branch}",
                 f"Write the final result back to: {plan_path}",
-                "If a repository experience memory is present, inherit its proven lessons and avoid repeating known failures.",
+                "If a repository shared asset is present, inherit its stable notes and avoid repeating known failures.",
                 "",
-                "Inherited repository experience:",
-                inherited_experience or "(none yet)",
+                "Repository shared asset:",
+                inherited_asset or "(none yet)",
                 "",
                 content,
             ]
@@ -191,8 +191,16 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
     )
     manifest.latest_plan_id = plan_id
     save_manifest(paths, manifest)
+    upsert_plan_index_record(
+        run_dir=paths.root,
+        plan_id=plan_id,
+        parent_plan_id=None,
+        status="planned",
+        short_summary=goal_text.splitlines()[0],
+        artifacts=[str(plan_path)],
+    )
     append_jsonl(
-        paths.logs / "agent1-planner.jsonl",
+        paths.logs / "iteration-agent.jsonl",
         {"ts": utc_now(), "level": "INFO", "event": "plan_created", "plan_id": plan_id},
     )
     return plan_path
@@ -202,7 +210,7 @@ def create_iterated_plan(
     paths: RunPaths, manifest: RunManifest, parent_plan_id: str, feedback: str
 ) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
-    inherited_experience = load_repo_experience(paths.root)
+    inherited_asset = load_repo_asset(paths.root)
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     logger.info("Creating iterated plan {} from {}", plan_id, parent_plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
@@ -230,10 +238,10 @@ def create_iterated_plan(
         raise ValueError("; ".join(errors))
     write_text(plan_path, content)
     write_text(
-        paths.prompts / f"{plan_id}.iterator.prompt.md",
+        paths.prompts / f"{plan_id}.plan.prompt.md",
         "\n".join(
             [
-                f"You are planner agent 2 for run {manifest.run_id}.",
+                f"You are the iteration agent for run {manifest.run_id}.",
                 "Create the next plan without changing the required markdown headings.",
                 f"Repository: {manifest.repo_path}",
                 f"Source branch: {manifest.source_branch}",
@@ -241,8 +249,8 @@ def create_iterated_plan(
                 f"Write the final result back to: {plan_path}",
                 f"Feedback: {feedback}",
                 "",
-                "Inherited repository experience:",
-                inherited_experience or "(none yet)",
+                "Repository shared asset:",
+                inherited_asset or "(none yet)",
                 "",
                 "Parent plan content:",
                 "",
@@ -257,8 +265,16 @@ def create_iterated_plan(
     manifest.latest_plan_id = plan_id
     manifest.current_iteration += 1
     save_manifest(paths, manifest)
+    upsert_plan_index_record(
+        run_dir=paths.root,
+        plan_id=plan_id,
+        parent_plan_id=parent_plan_id,
+        status="planned",
+        short_summary=feedback.splitlines()[0],
+        artifacts=[str(parent_plan_path), str(plan_path)],
+    )
     append_jsonl(
-        paths.logs / "agent2-iterator.jsonl",
+        paths.logs / "iteration-agent.jsonl",
         {
             "ts": utc_now(),
             "level": "INFO",

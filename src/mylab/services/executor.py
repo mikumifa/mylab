@@ -4,7 +4,7 @@ from pathlib import Path
 
 from mylab.codex import CodexExecSpec, CodexRunner
 from mylab.logging import logger
-from mylab.services.experience import load_repo_experience
+from mylab.services.assets import load_repo_asset, repo_asset_path
 from mylab.storage import append_jsonl, write_text
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
@@ -12,7 +12,7 @@ from mylab.utils import utc_now
 
 def executor_prompt(run_dir: Path, plan_id: str) -> str:
     manifest = load_manifest(run_dir)
-    inherited_experience = load_repo_experience(run_dir)
+    inherited_asset = load_repo_asset(run_dir)
     plan_path = run_dir / "plans" / f"{plan_id}.md"
     result_path = run_dir / "results" / f"{plan_id}.result.md"
     summary_path = run_dir / "summaries" / f"{plan_id}.summary.md"
@@ -20,7 +20,7 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
     command_path = run_dir / "commands" / f"{plan_id}.executor.sh"
     return "\n".join(
         [
-            f"You are execution agent 3 for {plan_id}.",
+            f"You are the iteration agent executing {plan_id}.",
             "Read the plan, implement the required code and script changes, and keep all outputs under the provided run directory.",
             f"Repository root: {manifest.repo_path}",
             f"Run directory: {run_dir}",
@@ -28,15 +28,17 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             f"Result report path: {result_path}",
             f"Summary path: {summary_path}",
             f"Structured log path: {log_path}",
+            f"Plan index path: {run_dir / 'plans' / 'index.md'}",
+            f"Repository shared asset path: {repo_asset_path(run_dir)}",
             "Rules:",
             "1. Do not hardcode experiment output paths outside the run directory.",
             "2. Preserve raw command output and intermediate artifacts.",
             "3. If execution is long-running, create or update runnable scripts before starting.",
             "4. Keep the final report tied to concrete file paths and observed results.",
-            "5. Reuse proven lessons from the repository experience memory when relevant, and avoid known bad paths.",
+            "5. Reuse the repository shared asset when relevant, update it with durable repo knowledge, and avoid known bad paths.",
             "",
-            "Inherited repository experience:",
-            inherited_experience or "(none yet)",
+            "Repository shared asset:",
+            inherited_asset or "(none yet)",
             "",
             "After completion, write a markdown result report and a concise summary.",
             "",
@@ -70,7 +72,7 @@ def prepare_executor(run_dir: Path, plan_id: str, model: str | None) -> Path:
     logger.info("Preparing Codex executor for {} in {}", plan_id, run_dir)
     CodexRunner().prepare_shell_script(spec, command_path)
     append_jsonl(
-        run_dir / "logs" / "agent3-preparer.jsonl",
+        run_dir / "logs" / "iteration-agent.jsonl",
         {
             "ts": utc_now(),
             "level": "INFO",
@@ -99,7 +101,7 @@ def run_executor(run_dir: Path, plan_id: str, model: str | None, full_auto: bool
     )
     logger.info("Running Codex executor for {} on repo {}", plan_id, manifest.repo_path)
     append_jsonl(
-        run_dir / "logs" / "agent4-runner.jsonl",
+        run_dir / "logs" / "iteration-agent.jsonl",
         {
             "ts": utc_now(),
             "level": "INFO",
@@ -109,7 +111,7 @@ def run_executor(run_dir: Path, plan_id: str, model: str | None, full_auto: bool
     )
     CodexRunner().run(spec)
     append_jsonl(
-        run_dir / "logs" / "agent4-runner.jsonl",
+        run_dir / "logs" / "iteration-agent.jsonl",
         {
             "ts": utc_now(),
             "level": "INFO",

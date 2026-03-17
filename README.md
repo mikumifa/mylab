@@ -2,7 +2,7 @@
 
 `mylab` 是一个基于 `codex` CLI 的实验编排工具，目标是把“研究目标 -> 计划 -> 实现 -> 执行 -> 总结 -> 下一轮迭代”固定成可追踪、可复盘、可自动化的流程。
 
-这一版已经按“大项目”方向拆包，并把流程改成队列化轮询，而不是把所有逻辑塞在一个 CLI 文件里。
+这一版按“单一迭代 agent”来组织流程，而不是依赖多个角色化 agent 彼此接力。
 
 ## 包结构
 
@@ -21,15 +21,17 @@ src/mylab/
 
 - 输入一个实验目标，可以直接通过 `--goal` 传入文本，或者把 `--goal` 指向一个文件；也兼容 `--lab-md`。
 - 输入一个被 Git 追踪的论文实验仓库路径。
-- 由多个职责明确的 agent 分工完成：
-  - `format-agent`：先检查仓库是否支持可配置输出目录、日志保留和中间结果落盘。
-  - `agent1-planner`：生成首轮 `plan.md`。
-  - `agent2-iterator`：根据前一轮结果继续迭代 `plan.md`。
-  - `agent3-preparer`：为执行 agent 生成 prompt、命令脚本和结果路径。
-  - `agent4-runner`：调用 `codex exec` 执行 plan。
-  - `summary-agent`：生成标准化总结。
+- 由同一个迭代 agent 在每轮内部完成：
+  - 仓库编排检查
+  - 生成或迭代 `plan.md`
+  - 准备可复用执行脚本
+  - 执行 plan
+  - 生成标准化总结
+  - 更新仓库级共享资产和 `plans/` 索引
 - 所有中间结果统一保存在环境变量 `MYLAB_RUNS_DIR` 指定的位置；未设置时默认为当前目录下的 `.mylab_runs/`。
 - 如果 run 目录落在论文实验仓库内部，程序会自动把对应路径写入该仓库的 `.gitignore`，避免实验产物被 Git 跟踪。
+- 所有迭代共享一个仓库级资产文件，沉淀“怎么跑、注意事项、代码位置、重复坑点”等长期信息。
+- `plans/index.md` 和 `plans/index.jsonl` 维护每轮最短摘要，便于后续模型先做快速检索。
 
 ## 目录约定
 
@@ -50,20 +52,28 @@ $MYLAB_RUNS_DIR/<run_id>/
 
 说明：
 
-- `plans/`: 严格格式的 `plan-XXX.md`
-- `prompts/`: 给 codex agent 的 prompt 文件
-- `logs/`: 结构化 `jsonl` 日志和 codex 事件流
-- `results/`: 执行结果、格式检查报告、agent 最后一条消息
+- `plans/`: 严格格式的 `plan-XXX.md`，以及 `index.md` / `index.jsonl`
+- `prompts/`: 给 codex 执行上下文的 prompt 文件
+- `logs/`: 结构化 `jsonl` 日志和 codex 事件流，统一主日志为 `iteration-agent.jsonl`
+- `results/`: 执行结果、格式检查报告、codex 最后一条消息
 - `summaries/`: 面向复盘的标准总结
 - `commands/`: 可重复执行的 shell 脚本
 - `queue/`: 轮询推进使用的任务队列
 
-## 轮询结构
-
-旧结构更像是手工顺序执行：
+在 run 目录之外，还会维护仓库级共享资产：
 
 ```text
-create-plan -> prepare-executor -> run-executor -> write-summary
+$MYLAB_RUNS_DIR/assets/<repo-key>.md
+```
+
+这个文件存放跨 run、跨 plan 仍然成立的共性知识。
+
+## 轮询结构
+
+对外抽象是单 agent，但内部仍通过队列推进稳定阶段：
+
+```text
+plan -> prepare -> execute -> summarize -> update-assets
 ```
 
 现在改成 `run` 直接驱动内部任务队列：
@@ -75,7 +85,7 @@ run
   -> 直接执行，不需要单独 allow-exec
 ```
 
-这样后续扩展新 agent、新 stage、新检查项时，不需要继续膨胀 CLI 参数层。
+这样下一轮会自然消费上一轮交付，形成类似 RNN 的滚动迭代，而不是人为维护一堆 agent 边界。
 
 ## 严格格式
 
@@ -165,7 +175,7 @@ mylab tool iterate-plan \
   --feedback "补充下一轮具体目标"
 ```
 
-为执行 agent 准备 prompt 和命令：
+为执行阶段准备 prompt 和命令：
 
 ```bash
 mylab tool prepare-executor \
@@ -189,9 +199,9 @@ mylab tool write-summary \
 
 ## 后续建议
 
-当前版本已经把最关键的编排骨架落好了。下一步适合继续增强：
+当前版本的核心是“单 agent 迭代闭环 + 共享资产 + plan 索引”。下一步适合继续增强：
 
 - 增加 `plan.md` 和 `summary.md` 的更严格机器校验
-- 在执行 agent prompt 中注入仓库上下文摘要
+- 从结果与代码扫描中自动提炼共享资产里的稳定字段
 - 为特定实验仓库生成 patch 前的预检查和后验检查
 - 将结果汇总成单一的 `run-report.md`
