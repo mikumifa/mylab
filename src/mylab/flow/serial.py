@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from mylab.domain import QueueState, TaskRecord
 from mylab.logging import emit_progress, logger
@@ -8,17 +9,33 @@ from mylab.orchestrator.queue import load_queue, save_queue
 from mylab.services.executor import prepare_executor, run_executor
 from mylab.services.formatting import format_for_manifest
 from mylab.services.git_lifecycle import ensure_run_branch, restore_original_branch
+from mylab.services.notifications import NotificationClient, load_notification_settings
 from mylab.services.plans import create_initial_plan, create_iterated_plan
 from mylab.services.reports import write_summary
+from mylab.services.run_control import (
+    FLOW_MODE_LIMIT,
+    FLOW_MODE_STEP,
+    FLOW_MODE_UNLIMIT,
+)
 from mylab.storage.runs import init_run_dirs, load_manifest
 from mylab.utils import utc_now
 
 
 class SerialFlowRunner:
-    def __init__(self, run_dir: Path, allow_exec: bool) -> None:
+    def __init__(
+        self,
+        run_dir: Path,
+        allow_exec: bool,
+        *,
+        mode: str = FLOW_MODE_LIMIT,
+        confirm_continue: Callable[[int], bool] | None = None,
+    ) -> None:
         self.run_dir = run_dir
         self.allow_exec = allow_exec
+        self.mode = mode
+        self.confirm_continue = confirm_continue
         self.paths = init_run_dirs(run_dir)
+        self.notifier = NotificationClient(run_dir, load_notification_settings(run_dir))
 
     def _next_pending(self, queue: QueueState) -> TaskRecord | None:
         for task in queue.tasks:
@@ -56,6 +73,23 @@ class SerialFlowRunner:
             parts.append(f"feedback={brief[:80]}")
         return ", ".join(parts)
 
+    def _is_iteration_task(self, task: TaskRecord) -> bool:
+        return task.kind in {
+            "create_plan",
+            "iterate_plan",
+            "prepare_branch",
+            "prepare_executor",
+            "run_executor",
+            "write_summary",
+            "restore_branch",
+        }
+
+    def _starts_iteration(self, task: TaskRecord) -> bool:
+        return self._is_iteration_task(task)
+
+    def _ends_iteration(self, task: TaskRecord) -> bool:
+        return task.kind == "restore_branch"
+
     def _log_run_overview(self, queue: QueueState) -> None:
         manifest = load_manifest(self.run_dir)
         pending = sum(1 for task in queue.tasks if task.status == "pending")
@@ -76,6 +110,16 @@ class SerialFlowRunner:
             f"{manifest.run_id}",
             f"repo={manifest.repo_path} branch={manifest.source_branch} plan={manifest.latest_plan_id or '-'} pending={pending} done={done} failed={failed}",
             color="blue",
+        )
+        self.notifier.notify(
+            f"mylab run {manifest.run_id} started",
+            (
+                f"repo={manifest.repo_path}\n"
+                f"branch={manifest.source_branch}\n"
+                f"latest_plan={manifest.latest_plan_id or '-'}\n"
+                f"pending={pending} done={done} failed={failed}"
+            ),
+            notify_type="info",
         )
 
     def _append_task(
@@ -210,13 +254,75 @@ class SerialFlowRunner:
             return restore_original_branch(self.run_dir, manifest)
         raise ValueError(f"unsupported task kind: {task.kind}")
 
-    def run_until_blocked(self, limit: int) -> list[dict[str, str]]:
-        logger.info("Starting serial flow for {} with limit={}", self.run_dir, limit)
+    def _step_limit(self, limit: int | None) -> int:
+        if isinstance(limit, int) and limit > 0:
+            return limit
+        return 1
+
+    def _should_continue_step_mode(
+        self,
+        queue: QueueState,
+        completed_iterations: int,
+        iteration_in_progress: bool,
+        step_limit: int,
+    ) -> tuple[bool, int]:
+        if iteration_in_progress or completed_iterations < step_limit:
+            return True, step_limit
+        if self._next_pending(queue) is None:
+            return False, step_limit
+        if self.confirm_continue is None:
+            logger.info(
+                "Serial flow blocked after {} completed iteration(s) in step mode",
+                completed_iterations,
+            )
+            emit_progress(
+                "[wait]",
+                "step mode",
+                "awaiting explicit continue",
+                color="yellow",
+            )
+            return False, step_limit
+        if not self.confirm_continue(completed_iterations):
+            logger.info(
+                "Serial flow stopped by operator after {} completed iteration(s)",
+                completed_iterations,
+            )
+            emit_progress(
+                "[wait]",
+                "step mode",
+                "stopped by operator",
+                color="yellow",
+            )
+            return False, step_limit
+        return True, step_limit + 1
+
+    def run_until_blocked(self, limit: int | None) -> list[dict[str, str]]:
+        logger.info(
+            "Starting serial flow for {} with mode={} limit={}",
+            self.run_dir,
+            self.mode,
+            limit,
+        )
         queue = load_queue(self.run_dir)
         self._log_run_overview(queue)
         processed: list[dict[str, str]] = []
-        remaining = limit
-        while remaining > 0:
+        completed_iterations = 0
+        iteration_in_progress = False
+        step_limit = self._step_limit(limit) if self.mode == FLOW_MODE_STEP else 0
+        while True:
+            if (
+                self.mode == FLOW_MODE_LIMIT
+                and isinstance(limit, int)
+                and completed_iterations >= limit
+                and not iteration_in_progress
+            ):
+                break
+            if self.mode == FLOW_MODE_STEP:
+                should_continue, step_limit = self._should_continue_step_mode(
+                    queue, completed_iterations, iteration_in_progress, step_limit
+                )
+                if not should_continue:
+                    break
             task = self._next_pending(queue)
             if task is None:
                 break
@@ -233,6 +339,8 @@ class SerialFlowRunner:
                     color="yellow",
                 )
                 break
+            if self._starts_iteration(task):
+                iteration_in_progress = True
             task.status = "running"
             task.started_at = utc_now()
             try:
@@ -251,7 +359,9 @@ class SerialFlowRunner:
                         color="cyan",
                     )
                 else:
-                    logger.info("Task start | {} | {}", task.task_id, self._task_label(task))
+                    logger.info(
+                        "Task start | {} | {}", task.task_id, self._task_label(task)
+                    )
                     emit_progress(
                         "[task]",
                         f"{task.task_id} {self._task_label(task)}",
@@ -271,8 +381,24 @@ class SerialFlowRunner:
                 processed.append(
                     {"task_id": task.task_id, "kind": task.kind, "output": output}
                 )
+                if self._ends_iteration(task):
+                    completed_iterations += 1
+                    iteration_in_progress = False
+                if task.kind in {"run_executor", "write_summary"}:
+                    self.notifier.notify(
+                        f"mylab {task.kind} ok",
+                        (
+                            f"run={self.run_dir.name}\n"
+                            f"task={task.task_id}\n"
+                            f"kind={task.kind}\n"
+                            f"output={output}"
+                        ),
+                        notify_type="success",
+                    )
             except Exception as exc:
-                logger.exception("Task failed | {} | {}", task.task_id, self._task_label(task))
+                logger.exception(
+                    "Task failed | {} | {}", task.task_id, self._task_label(task)
+                )
                 emit_progress(
                     "[fail]",
                     f"{task.task_id} {self._task_label(task)}",
@@ -297,14 +423,32 @@ class SerialFlowRunner:
                         "output": f"ERROR: {exc}",
                     }
                 )
+                self.notifier.notify(
+                    f"mylab task failed: {task.kind}",
+                    (
+                        f"run={self.run_dir.name}\n"
+                        f"task={task.task_id}\n"
+                        f"kind={task.kind}\n"
+                        f"error={exc}"
+                    ),
+                    notify_type="failure",
+                )
                 break
-            remaining -= 1
         save_queue(self.run_dir, queue)
-        logger.info("Serial flow finished after processing {} task(s)", len(processed))
+        logger.info(
+            "Serial flow finished after processing {} task(s), completed_iterations={}",
+            len(processed),
+            completed_iterations,
+        )
         emit_progress(
             "[flow]",
             "serial flow finished",
-            f"processed={len(processed)}",
+            f"processed={len(processed)} iterations={completed_iterations}",
             color="blue",
+        )
+        self.notifier.notify(
+            f"mylab flow finished: {self.run_dir.name}",
+            f"processed={len(processed)} allow_exec={self.allow_exec}",
+            notify_type="info",
         )
         return processed

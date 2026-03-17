@@ -30,7 +30,11 @@ class RunManifest:
     current_iteration: int = 1
     latest_plan_id: str | None = None
     original_branch: str | None = None
+    original_head_commit: str | None = None
     work_branch: str | None = None
+    notify_urls: list[str] = field(default_factory=list)
+    notify_config_path: str | None = None
+    notify_tag: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

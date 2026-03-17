@@ -42,6 +42,16 @@ class GitManager:
         logger.info("Checking out git branch {}", branch)
         self._run(["checkout", branch])
 
+    def add(self, *paths: str) -> None:
+        if not paths:
+            return
+        self._run(["add", *paths])
+
+    def commit(self, message: str) -> str:
+        logger.info("Creating git commit in {}", self.repo_path)
+        self._run(["commit", "-m", message])
+        return self.head_commit()
+
     def create_and_checkout_branch(self, branch: str, source_branch: str) -> None:
         logger.info("Creating work branch {} from {}", branch, source_branch)
         self._run(["checkout", source_branch])

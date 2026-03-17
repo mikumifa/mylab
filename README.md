@@ -30,8 +30,10 @@ src/mylab/
   - 更新仓库级共享资产和 `plans/` 索引
 - 所有中间结果统一保存在环境变量 `MYLAB_RUNS_DIR` 指定的位置；未设置时默认为当前目录下的 `.mylab_runs/`。
 - 如果 run 目录落在论文实验仓库内部，程序会自动把对应路径写入该仓库的 `.gitignore`，避免实验产物被 Git 跟踪。
+- 新 run 开始前，目标仓库必须已有提交且工作区干净；如果缺少对运行目录的 `.gitignore` 条目，`mylab` 会自动补上并创建一条只包含该修改的提交。
 - 所有迭代共享一个仓库级资产文件，沉淀“怎么跑、注意事项、代码位置、重复坑点”等长期信息。
 - `plans/index.md` 和 `plans/index.jsonl` 维护每轮最短摘要，便于后续模型先做快速检索。
+- 通知层基于 Apprise，单次接入即可复用 Telegram、Discord、Slack、邮件、Webhook 等多个平台，配置固定放在用户目录 `~/.mylab/config.toml`。
 
 ## 目录约定
 
@@ -147,6 +149,96 @@ mylab run \
 ```bash
 mylab run \
   --run-dir .mylab_runs/20260316_120000_example
+```
+
+运行控制支持三种模式：
+
+- `limit`: 按“完整 iteration 轮数”限制本次调用最多跑多少轮，不按 plan 内部步骤计数。
+- `step`: 默认先跑 1 轮，然后每完成一轮都要求用户在界面里确认是否继续；如果同时传 `--limit N`，则先自动跑 `N` 轮，再切换到逐轮确认。
+- `unlimit`: 只要队列里还有任务且没有失败/执行门控，就持续跑下去。
+
+例如：
+
+```bash
+mylab run --repo /path/to/paper-repo --goal "复现实验" --mode limit --limit 2
+mylab run --run-dir .mylab_runs/20260316_120000_example --mode step
+mylab run --run-dir .mylab_runs/20260316_120000_example --mode step --limit 2
+mylab run --run-dir .mylab_runs/20260316_120000_example --mode unlimit
+```
+
+如果没有传 `--mode`，并且当前是交互式终端，`mylab` 会提示用户选择；也可以在 `~/.mylab/config.toml` 里写默认值：
+
+```toml
+[runner]
+mode = "limit"
+limit = 100
+```
+
+如果希望启用 Telegram bot 和通知，先在用户目录写配置：
+
+```toml
+# ~/.mylab/config.toml
+[telegram]
+bot_token = "123456:replace-me"
+allowed_chat_ids = [123456789]
+poll_interval_seconds = 5
+feedback_context_limit = 5
+
+[runner]
+mode = "limit"
+limit = 100
+
+[notifications]
+urls = ["tgram://<bot_token>/<chat_id>"]
+```
+
+如果希望交互式配置 Telegram，直接运行：
+
+```bash
+mylab bot telegram
+```
+
+`Telegram` 交互式配置现在只强制要求 `bot_token`，其余字段都可以直接使用默认值；只有在你选择高级配置时，才会继续询问 chat id、轮询间隔、反馈上下文长度和通知 chat id。
+
+如果你只想先生成模板文件，也可以：
+
+```bash
+mylab tool init-config
+```
+
+然后启动 Telegram bot 轮询：
+
+```bash
+mylab tool telegram-bot
+```
+
+机器人支持这些简单指令：
+
+```text
+/on   开始通知
+/off  暂停通知
+```
+
+用户也可以直接发送文字或文件。它们会被保存到 `~/.mylab/telegram/inbox/`，并自动注入下一轮 plan / executor prompt，作为后续迭代的额外上下文。
+
+之后正常运行 `mylab` 即可，不需要每次重复传参数：
+
+```bash
+mylab run \
+  --repo /path/to/paper-repo \
+  --goal "复现实验并补跑分析"
+```
+
+如果 `~/.mylab/config.toml` 不存在，`mylab` 会直接跳过通知发送，Telegram bot 轮询命令会报配置缺失。
+
+如果希望一次配置多个平台，建议仍然通过同一个用户级配置接入 Apprise：
+
+```toml
+# ~/.mylab/config.toml
+[notifications]
+urls = ["tgram://<bot_token>/<chat_id>"]
+config_path = "/path/to/apprise.yaml"
+tag = "mylab"
 ```
 
 低层命令都放到 `tool` 下面，只建议调试时用：

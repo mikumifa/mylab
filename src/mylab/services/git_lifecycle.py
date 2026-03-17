@@ -5,9 +5,62 @@ from pathlib import Path
 from mylab.domain import RunManifest
 from mylab.gittools import GitManager
 from mylab.logging import logger
+from mylab.services.repo_ignore import ensure_run_dir_ignored
 from mylab.storage import append_jsonl
 from mylab.storage.runs import init_run_dirs, save_manifest
-from mylab.utils import slugify, utc_now
+from mylab.utils import (
+    detect_git_branch,
+    has_commits,
+    slugify,
+    utc_now,
+    working_tree_is_clean,
+)
+
+
+def prepare_repo_for_run(
+    repo_path: Path, run_dir: Path, log_path: Path
+) -> tuple[str, str]:
+    repo_path = repo_path.resolve()
+    git = GitManager(repo_path, log_path)
+    if not has_commits(repo_path):
+        raise RuntimeError(
+            "repository has no commits; commit the current branch before running mylab"
+        )
+    if not working_tree_is_clean(repo_path):
+        raise RuntimeError(
+            "repository has uncommitted changes; commit or stash them before running mylab"
+        )
+
+    original_branch = detect_git_branch(repo_path)
+    original_head = git.head_commit()
+    ignored_added, ignored_entry = ensure_run_dir_ignored(repo_path, run_dir)
+    if ignored_added:
+        logger.info("Committing gitignore update for {}", ignored_entry)
+        git.add(".gitignore")
+        committed_head = git.commit("chore: ignore mylab run artifacts")
+        append_jsonl(
+            log_path,
+            {
+                "ts": utc_now(),
+                "event": "run_gitignore_committed",
+                "original_branch": original_branch,
+                "ignored_entry": ignored_entry,
+                "head_commit_before": original_head,
+                "head_commit_after": committed_head,
+            },
+        )
+        original_head = committed_head
+    append_jsonl(
+        log_path,
+        {
+            "ts": utc_now(),
+            "event": "repo_preflight_passed",
+            "original_branch": original_branch,
+            "original_head_commit": original_head,
+            "ignored_entry": ignored_entry,
+        },
+    )
+    return original_branch, original_head
 
 
 def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str:
@@ -42,14 +95,17 @@ def restore_original_branch(run_dir: Path, manifest: RunManifest) -> str:
     paths = init_run_dirs(run_dir)
     git = GitManager(Path(manifest.repo_path), paths.logs / "git-lifecycle.jsonl")
     target = manifest.original_branch or manifest.source_branch
-    logger.info("Restoring original branch {}", target)
-    git.checkout(target)
+    current = git.current_branch()
+    if current != target:
+        logger.info("Restoring original branch {}", target)
+        git.checkout(target)
     append_jsonl(
         paths.logs / "git-lifecycle.jsonl",
         {
             "ts": utc_now(),
             "event": "original_branch_restored",
             "target_branch": target,
+            "restored_from": current,
             "saved_work_branch": manifest.work_branch,
         },
     )

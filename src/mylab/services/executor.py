@@ -5,6 +5,8 @@ from pathlib import Path
 from mylab.codex import CodexExecSpec, CodexRunner
 from mylab.logging import logger
 from mylab.services.assets import load_repo_asset, repo_asset_path
+from mylab.services.plans import training_budget_rule_lines
+from mylab.services.telegram_bot import load_feedback_context, load_telegram_settings
 from mylab.storage import append_jsonl, write_text
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
@@ -13,6 +15,9 @@ from mylab.utils import utc_now
 def executor_prompt(run_dir: Path, plan_id: str) -> str:
     manifest = load_manifest(run_dir)
     inherited_asset = load_repo_asset(run_dir)
+    feedback_context = load_feedback_context(
+        load_telegram_settings().feedback_context_limit
+    )
     plan_path = run_dir / "plans" / f"{plan_id}.md"
     result_path = run_dir / "results" / f"{plan_id}.result.md"
     summary_path = run_dir / "summaries" / f"{plan_id}.summary.md"
@@ -36,11 +41,20 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             "3. If execution is long-running, create or update runnable scripts before starting.",
             "4. Keep the final report tied to concrete file paths and observed results.",
             "5. Reuse the repository shared asset when relevant, update it with durable repo knowledge, and avoid known bad paths.",
+            "6. Do not silently shrink the intended training budget. If the experiment is supposed to run 500 epochs/steps, do not arbitrarily run 200 instead.",
+            "7. Early stopping, reduced search, or proxy runs are allowed only when justified by repo logic or explicit plan rationale, and the result report must state both the planned budget and the actual stop point.",
             "",
             "Repository shared asset:",
             inherited_asset or "(none yet)",
             "",
+            "Training budget guardrails:",
+            *training_budget_rule_lines(),
+            "",
+            "Recent user feedback from Telegram inbox:",
+            feedback_context or "(none yet)",
+            "",
             "After completion, write a markdown result report and a concise summary.",
+            "The result report must explicitly mention the configured training budget, the actual executed budget, and any early-stopping condition when training is involved.",
             "",
             "Plan content:",
             "",
@@ -85,7 +99,9 @@ def prepare_executor(run_dir: Path, plan_id: str, model: str | None) -> Path:
     return command_path
 
 
-def run_executor(run_dir: Path, plan_id: str, model: str | None, full_auto: bool) -> Path:
+def run_executor(
+    run_dir: Path, plan_id: str, model: str | None, full_auto: bool
+) -> Path:
     manifest = load_manifest(run_dir)
     prompt_path = run_dir / "prompts" / f"{plan_id}.executor.prompt.md"
     output_path = run_dir / "results" / f"{plan_id}.codex.last.md"

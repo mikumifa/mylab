@@ -6,8 +6,10 @@ from pathlib import Path
 from mylab.config import PLAN_HEADINGS, RUNS_ENV_VAR
 from mylab.domain import RunManifest, RunPaths
 from mylab.logging import logger
+from mylab.services.notifications import NotificationSettings
+from mylab.services.git_lifecycle import prepare_repo_for_run
 from mylab.services.assets import load_repo_asset, upsert_plan_index_record
-from mylab.services.repo_ignore import ensure_run_dir_ignored
+from mylab.services.telegram_bot import load_feedback_context, load_telegram_settings
 from mylab.storage import append_jsonl, read_text, write_text
 from mylab.storage.runs import save_manifest
 from mylab.utils import detect_source_branch, slugify, utc_now
@@ -62,6 +64,14 @@ def default_deliverables(plan_id: str) -> list[str]:
     ]
 
 
+def training_budget_rule_lines() -> list[str]:
+    return [
+        "If the experiment has a stated epoch/step/training budget, keep that intended budget unless the repository already defines a different default.",
+        "Early stopping or other speedup strategies are allowed only when they preserve the experiment's validity; do not silently cut the budget to a much smaller run.",
+        "If you stop early, record the configured budget, the actual stop point, and the reason in the result report and logs.",
+    ]
+
+
 def render_plan_markdown(
     *,
     plan_id: str,
@@ -100,6 +110,8 @@ def render_plan_markdown(
 2. Every code change must be tied to this plan ID in logs or commit notes.
 3. Raw execution logs must be preserved without truncation.
 4. Final summaries must reference concrete artifact paths.
+5. Preserve the intended training budget unless an explicit early-stop rule or repo default justifies stopping earlier.
+6. If training stops early, record the planned budget, actual stop point, and stopping reason.
 """
 
 
@@ -120,10 +132,13 @@ def bootstrap_run(
     paths: RunPaths,
     source_branch: str | None = None,
     input_file_name: str = "goal.txt",
+    notifications: NotificationSettings | None = None,
 ) -> RunManifest:
+    original_branch, original_head_commit = prepare_repo_for_run(
+        repo_path, paths.root, paths.logs / "git-lifecycle.jsonl"
+    )
     resolved_branch = source_branch or detect_source_branch(repo_path)
     logger.info("Bootstrapping run {} for repo {}", run_id, repo_path)
-    ignored_added = ensure_run_dir_ignored(repo_path, paths.root)
     goal_file = paths.inputs / input_file_name
     write_text(goal_file, goal_text)
     manifest = RunManifest(
@@ -132,7 +147,11 @@ def bootstrap_run(
         source_branch=resolved_branch,
         goal_file=str(goal_file),
         runs_env_var=RUNS_ENV_VAR,
-        original_branch=resolved_branch,
+        original_branch=original_branch,
+        original_head_commit=original_head_commit,
+        notify_urls=list((notifications or NotificationSettings(urls=[])).urls),
+        notify_config_path=(notifications.config_path if notifications else None),
+        notify_tag=(notifications.tag if notifications else None),
     )
     save_manifest(paths, manifest)
     append_jsonl(
@@ -143,7 +162,8 @@ def bootstrap_run(
             "run_id": run_id,
             "repo_path": str(repo_path),
             "run_dir": str(paths.root),
-            "gitignore_updated": ignored_added,
+            "original_branch": original_branch,
+            "original_head_commit": original_head_commit,
         },
     )
     return manifest
@@ -152,6 +172,9 @@ def bootstrap_run(
 def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
     inherited_asset = load_repo_asset(paths.root)
+    feedback_context = load_feedback_context(
+        load_telegram_settings().feedback_context_limit
+    )
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     logger.info("Creating initial plan {}", plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
@@ -181,9 +204,17 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
                 f"Source branch: {manifest.source_branch}",
                 f"Write the final result back to: {plan_path}",
                 "If a repository shared asset is present, inherit its stable notes and avoid repeating known failures.",
+                "Do not weaken the experiment by silently shrinking epoch/step counts; preserve the intended training budget unless the repo already specifies a different valid default.",
+                "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and what minimum budget will still be executed.",
                 "",
                 "Repository shared asset:",
                 inherited_asset or "(none yet)",
+                "",
+                "Training budget guardrails:",
+                *training_budget_rule_lines(),
+                "",
+                "Recent user feedback from Telegram inbox:",
+                feedback_context or "(none yet)",
                 "",
                 content,
             ]
@@ -211,6 +242,9 @@ def create_iterated_plan(
 ) -> Path:
     goal_text = read_text(Path(manifest.goal_file)).strip()
     inherited_asset = load_repo_asset(paths.root)
+    feedback_context = load_feedback_context(
+        load_telegram_settings().feedback_context_limit
+    )
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     logger.info("Creating iterated plan {} from {}", plan_id, parent_plan_id)
     plan_path = paths.plans / f"{plan_id}.md"
@@ -248,9 +282,17 @@ def create_iterated_plan(
                 f"Parent plan: {parent_plan_path}",
                 f"Write the final result back to: {plan_path}",
                 f"Feedback: {feedback}",
+                "Do not weaken the experiment by silently shrinking epoch/step counts; preserve the intended training budget unless the repo already specifies a different valid default.",
+                "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and what minimum budget will still be executed.",
                 "",
                 "Repository shared asset:",
                 inherited_asset or "(none yet)",
+                "",
+                "Training budget guardrails:",
+                *training_budget_rule_lines(),
+                "",
+                "Recent user feedback from Telegram inbox:",
+                feedback_context or "(none yet)",
                 "",
                 "Parent plan content:",
                 "",

@@ -21,7 +21,9 @@ def softmax(logits: list[float]) -> list[float]:
 
 
 class TinyMLP:
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, seed: int) -> None:
+    def __init__(
+        self, input_dim: int, hidden_dim: int, output_dim: int, seed: int
+    ) -> None:
         rng = random.Random(seed)
         self.w1 = [
             [rng.uniform(-0.5, 0.5) for _ in range(hidden_dim)]
@@ -34,7 +36,9 @@ class TinyMLP:
         ]
         self.b2 = [0.0 for _ in range(output_dim)]
 
-    def forward(self, features: list[float]) -> tuple[list[float], list[float], list[float]]:
+    def forward(
+        self, features: list[float]
+    ) -> tuple[list[float], list[float], list[float]]:
         hidden_linear = []
         hidden = []
         for hidden_index in range(len(self.b1)):
@@ -60,7 +64,10 @@ class TinyMLP:
         grad_logits[label] -= 1.0
 
         grad_w2 = [
-            [hidden[hidden_index] * grad_logits[output_index] for output_index in range(len(self.b2))]
+            [
+                hidden[hidden_index] * grad_logits[output_index]
+                for output_index in range(len(self.b2))
+            ]
             for hidden_index in range(len(self.b1))
         ]
         grad_b2 = grad_logits[:]
@@ -73,20 +80,27 @@ class TinyMLP:
             grad_hidden.append(total * relu_grad(hidden_linear[hidden_index]))
 
         grad_w1 = [
-            [features[input_index] * grad_hidden[hidden_index] for hidden_index in range(len(self.b1))]
+            [
+                features[input_index] * grad_hidden[hidden_index]
+                for hidden_index in range(len(self.b1))
+            ]
             for input_index in range(len(features))
         ]
         grad_b1 = grad_hidden[:]
 
         for hidden_index in range(len(self.b1)):
             for output_index in range(len(self.b2)):
-                self.w2[hidden_index][output_index] -= lr * grad_w2[hidden_index][output_index]
+                self.w2[hidden_index][output_index] -= (
+                    lr * grad_w2[hidden_index][output_index]
+                )
         for output_index in range(len(self.b2)):
             self.b2[output_index] -= lr * grad_b2[output_index]
 
         for input_index in range(len(features)):
             for hidden_index in range(len(self.b1)):
-                self.w1[input_index][hidden_index] -= lr * grad_w1[input_index][hidden_index]
+                self.w1[input_index][hidden_index] -= (
+                    lr * grad_w1[input_index][hidden_index]
+                )
         for hidden_index in range(len(self.b1)):
             self.b1[hidden_index] -= lr * grad_b1[hidden_index]
 
@@ -116,7 +130,9 @@ class SmokeMLPTest(unittest.TestCase):
     def test_tiny_mlp_learns_simple_classification(self) -> None:
         dataset = make_dataset()
         model = TinyMLP(input_dim=2, hidden_dim=6, output_dim=2, seed=11)
-        initial_loss = sum(model.train_step(features, label, 0.0) for features, label in dataset) / len(dataset)
+        initial_loss = sum(
+            model.train_step(features, label, 0.0) for features, label in dataset
+        ) / len(dataset)
 
         losses = []
         for _ in range(60):

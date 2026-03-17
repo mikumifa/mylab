@@ -51,7 +51,9 @@ def _split_asset_sections(current: str) -> tuple[str, str]:
     if stable_marker in current and iteration_marker in current:
         stable_start = current.index(stable_marker) + len(stable_marker)
         iteration_start = current.index(iteration_marker)
-        stable = current[stable_start:iteration_start].strip() or _default_stable_notes()
+        stable = (
+            current[stable_start:iteration_start].strip() or _default_stable_notes()
+        )
         iterations = current[iteration_start + len(iteration_marker) :].strip()
         return stable, iterations
     if current.startswith("# Repository Experience Memory"):

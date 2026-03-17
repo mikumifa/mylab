@@ -52,7 +52,9 @@ def _cli_version() -> str | None:
 
 def get_codex_status(model_override: str | None = None) -> CodexStatus:
     config = _read_config()
-    configured_model = config.get("model") if isinstance(config.get("model"), str) else None
+    configured_model = (
+        config.get("model") if isinstance(config.get("model"), str) else None
+    )
     reasoning_effort = (
         config.get("model_reasoning_effort")
         if isinstance(config.get("model_reasoning_effort"), str)

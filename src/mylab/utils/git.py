@@ -10,9 +10,36 @@ def detect_git_branch(repo_path: Path) -> str:
     return result.stdout.strip()
 
 
+def has_commits(repo_path: Path) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(repo_path), "rev-parse", "--verify", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def working_tree_is_clean(repo_path: Path) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(repo_path), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return not result.stdout.strip()
+
+
 def branch_exists(repo_path: Path, branch: str) -> bool:
     result = subprocess.run(
-        ["git", "-C", str(repo_path), "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "show-ref",
+            "--verify",
+            "--quiet",
+            f"refs/heads/{branch}",
+        ],
         capture_output=True,
         text=True,
     )

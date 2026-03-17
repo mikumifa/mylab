@@ -5,6 +5,7 @@ description = "Codex-based experiment orchestration CLI for research labs"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "apprise>=1.9.0",
     "loguru>=0.7.2",
 ]
 

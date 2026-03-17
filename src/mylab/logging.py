@@ -65,7 +65,9 @@ def colorize(text: str, color: str, *, bold: bool = False, dim: bool = False) ->
     return f"{prefix}{text}{RESET}"
 
 
-def emit_progress(kind: str, title: str, details: str = "", *, color: str = "blue") -> None:
+def emit_progress(
+    kind: str, title: str, details: str = "", *, color: str = "blue"
+) -> None:
     prefix = colorize(kind, color, bold=True)
     message = f"{prefix} {title}"
     if details:
