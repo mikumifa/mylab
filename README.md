@@ -293,6 +293,26 @@ mylab tool prepare-executor \
   --model gpt-5-mini
 ```
 
+如果执行阶段需要启动长任务，优先直接用文档化的 job monitor CLI，不要让执行 agent 每次都去读 `mylab` 源码寻找替代入口：
+
+```bash
+mylab tool start-job \
+  --run-dir .mylab_runs/20260316_120000_example \
+  --plan-id plan-001 \
+  --name train \
+  --command 'bash commands/plan-001.executor.sh train'
+
+mylab tool wait-job \
+  --run-dir .mylab_runs/20260316_120000_example \
+  --job-id <job_id>
+
+mylab tool tail-job \
+  --run-dir .mylab_runs/20260316_120000_example \
+  --job-id <job_id>
+```
+
+如果你在 Codex 里反复做这类事情，可以直接让它使用仓库自带 skill：`mylab-job-monitor`。这个 skill 提供了完整的 start / wait / tail 示例和结构化日志写法，位置在 [SKILL.md](/root/xqz/mylab/.codex/skills/mylab-job-monitor/SKILL.md)。
+
 写总结：
 
 ```bash

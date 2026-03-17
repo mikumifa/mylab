@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from argparse import Namespace
 import sys
 import tempfile
 import time
@@ -9,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from mylab.commands.root import build_parser, cmd_start_job
 from mylab.domain import RunManifest
 from mylab.services.job_monitor import start_job, tail_job, wait_for_job
 from mylab.storage import write_text
@@ -16,6 +18,53 @@ from mylab.storage.runs import init_run_dirs, save_manifest
 
 
 class JobMonitorTest(unittest.TestCase):
+    def test_start_job_cli_keeps_tool_route_and_job_command_separate(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "tool",
+                "start-job",
+                "--run-dir",
+                "/tmp/run",
+                "--plan-id",
+                "plan-001",
+                "--command",
+                "echo hi",
+            ]
+        )
+
+        self.assertEqual(args.command, "tool")
+        self.assertEqual(args.tool_command, "start-job")
+        self.assertEqual(args.job_command, "echo hi")
+
+    def test_cmd_start_job_accepts_legacy_programmatic_command_field(self) -> None:
+        args = Namespace(
+            run_dir=self.paths.root,
+            plan_id="plan-001",
+            name="direct",
+            cwd=str(self.root),
+            command="echo direct",
+        )
+        with tempfile.TemporaryFile(mode="w+") as stdout:
+            original_stdout = sys.stdout
+            try:
+                sys.stdout = stdout
+                exit_code = cmd_start_job(args)
+            finally:
+                sys.stdout = original_stdout
+            stdout.seek(0)
+            started = json.loads(stdout.read())
+
+        self.assertEqual(exit_code, 0)
+        finished = wait_for_job(
+            self.paths.root,
+            started["job_id"],
+            wait_seconds=5,
+            poll_seconds=1,
+        )
+        self.assertEqual(finished["status"], "completed")
+        self.assertEqual(finished["exit_code"], 0)
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory(prefix="mylab-job-monitor-")
         self.root = Path(self.temp_dir.name)

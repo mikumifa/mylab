@@ -94,6 +94,10 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
         self.assertIn("mylab tool wait-job", prompt)
         self.assertIn("keep polling output concise to reduce token usage", prompt)
         self.assertIn(
+            "do not inspect mylab source code or invent alternate entrypoints",
+            prompt.lower(),
+        )
+        self.assertIn(
             "authoritative budget source and the actual stop point",
             prompt,
         )

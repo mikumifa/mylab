@@ -429,6 +429,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_job_cmd.add_argument("--cwd", help="Optional working directory override.")
     start_job_cmd.add_argument(
         "--command",
+        dest="job_command",
         required=True,
         help="Shell command string to execute under the monitor.",
     )
@@ -708,12 +709,19 @@ def cmd_run_executor(args: argparse.Namespace) -> int:
 def cmd_start_job(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.expanduser().resolve()
     configure_logging(run_dir / "logs")
+    job_command = getattr(args, "job_command", None)
+    if job_command is None:
+        # Backward-compatible fallback for older programmatic callers that
+        # constructed Namespace(command=...) to bypass the CLI parser bug.
+        job_command = getattr(args, "command", None)
+    if not job_command:
+        raise RuntimeError("missing job command")
     print(
         json.dumps(
             start_job(
                 run_dir,
                 args.plan_id,
-                args.command,
+                job_command,
                 name=args.name,
                 cwd=args.cwd,
             ),
