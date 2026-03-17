@@ -188,12 +188,20 @@ class FlowModeTest(unittest.TestCase):
             mode=FLOW_MODE_STEP,
         )
         runner._wait_for_step_feedback = lambda _completed: "next instruction from telegram"
-
-        ok = runner._maybe_chain_next_iteration(
-            queue,
-            completed_iterations=1,
-            step_limit=1,
+        original_load = serial_module.load_telegram_settings
+        serial_module.load_telegram_settings = lambda: TelegramSettings(
+            bot_token=None,
+            allowed_chat_ids=[],
         )
+
+        try:
+            ok = runner._maybe_chain_next_iteration(
+                queue,
+                completed_iterations=1,
+                step_limit=1,
+            )
+        finally:
+            serial_module.load_telegram_settings = original_load
 
         self.assertTrue(ok)
         self.assertEqual(queue.tasks[0].kind, "iterate_plan")
@@ -227,6 +235,7 @@ class FlowModeTest(unittest.TestCase):
                 allowed_chat_ids=[42],
                 poll_interval_seconds=1,
             )
+            runner._poll_telegram_feedback = lambda _settings=None: None
             serial_module.consume_feedback_since = lambda cursor: (None, cursor)
 
             def stop_sleep(_seconds: int) -> None:
@@ -241,6 +250,96 @@ class FlowModeTest(unittest.TestCase):
             serial_module.load_telegram_settings = original_load
             serial_module.consume_feedback_since = original_consume
             serial_module.time.sleep = original_sleep
+
+    def test_step_mode_polls_telegram_before_consuming_feedback(self) -> None:
+        save_manifest(
+            self.paths,
+            RunManifest(
+                run_id="run-001",
+                repo_path=str(self.root / "repo"),
+                source_branch="main",
+                goal_file=str(self.paths.inputs / "goal.txt"),
+                runs_env_var="MYLAB_RUNS_DIR",
+                latest_plan_id="plan-001",
+            ),
+        )
+        queue = QueueState(tasks=[])
+        runner = FakeSerialFlowRunner(
+            self.paths.root,
+            allow_exec=False,
+            mode=FLOW_MODE_STEP,
+        )
+        original_load = serial_module.load_telegram_settings
+        original_consume = serial_module.consume_feedback_since
+        polled: list[str] = []
+        try:
+            serial_module.load_telegram_settings = lambda: TelegramSettings(
+                bot_token="123:abc",
+                allowed_chat_ids=[42],
+                poll_interval_seconds=1,
+            )
+            runner._poll_telegram_feedback = lambda _settings=None: polled.append("yes")
+            serial_module.consume_feedback_since = lambda cursor: ("from telegram", cursor + 1)
+            ok = runner._maybe_chain_next_iteration(
+                queue,
+                completed_iterations=1,
+                step_limit=1,
+            )
+        finally:
+            serial_module.load_telegram_settings = original_load
+            serial_module.consume_feedback_since = original_consume
+
+        self.assertTrue(ok)
+        self.assertGreaterEqual(len(polled), 1)
+        self.assertEqual(queue.tasks[0].payload["feedback"], "from telegram")
+
+    def test_step_mode_wait_ignores_stale_feedback_before_wait_starts(self) -> None:
+        save_manifest(
+            self.paths,
+            RunManifest(
+                run_id="run-001",
+                repo_path=str(self.root / "repo"),
+                source_branch="main",
+                goal_file=str(self.paths.inputs / "goal.txt"),
+                runs_env_var="MYLAB_RUNS_DIR",
+                latest_plan_id="plan-001",
+                feedback_cursor=0,
+            ),
+        )
+        runner = FakeSerialFlowRunner(
+            self.paths.root,
+            allow_exec=False,
+            mode=FLOW_MODE_STEP,
+        )
+        original_load = serial_module.load_telegram_settings
+        original_count = serial_module.feedback_record_count
+        original_consume = serial_module.consume_feedback_since
+        try:
+            serial_module.load_telegram_settings = lambda: TelegramSettings(
+                bot_token="123:abc",
+                allowed_chat_ids=[42],
+                poll_interval_seconds=1,
+            )
+            runner._poll_telegram_feedback = lambda _settings=None: None
+            serial_module.feedback_record_count = lambda scopes=None: 3
+
+            calls: list[int] = []
+
+            def fake_consume(cursor: int) -> tuple[str | None, int]:
+                calls.append(cursor)
+                if len(calls) == 1:
+                    return None, 3
+                return "fresh telegram step", 4
+
+            serial_module.consume_feedback_since = fake_consume
+            feedback = runner._wait_for_step_feedback(1)
+        finally:
+            serial_module.load_telegram_settings = original_load
+            serial_module.feedback_record_count = original_count
+            serial_module.consume_feedback_since = original_consume
+
+        self.assertEqual(feedback, "fresh telegram step")
+        self.assertEqual(calls[0], 3)
 
     def test_unlimit_mode_queues_next_iteration_instead_of_stopping(self) -> None:
         save_manifest(
@@ -260,8 +359,13 @@ class FlowModeTest(unittest.TestCase):
             allow_exec=False,
             mode=FLOW_MODE_UNLIMIT,
         )
+        original_load = serial_module.load_telegram_settings
         original_consume = serial_module.consume_feedback_since
         try:
+            serial_module.load_telegram_settings = lambda: TelegramSettings(
+                bot_token=None,
+                allowed_chat_ids=[],
+            )
             serial_module.consume_feedback_since = lambda cursor: (None, cursor)
             ok = runner._maybe_chain_next_iteration(
                 queue,
@@ -269,6 +373,7 @@ class FlowModeTest(unittest.TestCase):
                 step_limit=0,
             )
         finally:
+            serial_module.load_telegram_settings = original_load
             serial_module.consume_feedback_since = original_consume
 
         self.assertTrue(ok)

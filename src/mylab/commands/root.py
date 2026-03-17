@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -27,7 +28,10 @@ from mylab.services import (
     prompt_for_flow_mode,
     resolve_notification_settings,
     run_executor,
+    start_job,
+    tail_job,
     telegram_notifications_enabled,
+    wait_for_job,
     write_sample_config,
     write_summary,
 )
@@ -396,6 +400,59 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pass Codex full-auto mode through to execution.",
     )
 
+    start_job_cmd = tool_subparsers.add_parser(
+        "start-job",
+        help="Start a monitored long-running job.",
+        description="Launch a long-running shell command through the mylab job monitor and return a job id for future polling.",
+        formatter_class=HELP_FORMATTER,
+    )
+    start_job_cmd.add_argument(
+        "--run-dir", required=True, type=Path, help="Existing run directory."
+    )
+    start_job_cmd.add_argument("--plan-id", required=True, help="Owning plan id.")
+    start_job_cmd.add_argument("--name", help="Short job label.")
+    start_job_cmd.add_argument("--cwd", help="Optional working directory override.")
+    start_job_cmd.add_argument(
+        "--command",
+        required=True,
+        help="Shell command string to execute under the monitor.",
+    )
+
+    wait_job_cmd = tool_subparsers.add_parser(
+        "wait-job",
+        help="Wait for a monitored job to finish.",
+        description="Wait up to the configured window for a monitored job. If the job is still running, returns a concise running status so the caller can poll again later.",
+        formatter_class=HELP_FORMATTER,
+    )
+    wait_job_cmd.add_argument(
+        "--run-dir", required=True, type=Path, help="Existing run directory."
+    )
+    wait_job_cmd.add_argument("--job-id", required=True, help="Tracked job id.")
+    wait_job_cmd.add_argument(
+        "--wait-seconds",
+        type=int,
+        help="Maximum seconds to wait before returning. Defaults to the monitor standard window.",
+    )
+    wait_job_cmd.add_argument(
+        "--poll-seconds",
+        type=int,
+        help="Polling cadence in seconds while waiting.",
+    )
+
+    tail_job_cmd = tool_subparsers.add_parser(
+        "tail-job",
+        help="Read the tail of a monitored job's logs.",
+        description="Return a small tail from stdout/stderr for an existing monitored job.",
+        formatter_class=HELP_FORMATTER,
+    )
+    tail_job_cmd.add_argument(
+        "--run-dir", required=True, type=Path, help="Existing run directory."
+    )
+    tail_job_cmd.add_argument("--job-id", required=True, help="Tracked job id.")
+    tail_job_cmd.add_argument(
+        "--lines", type=int, default=20, help="Number of tail lines to return per stream."
+    )
+
     summary_cmd = tool_subparsers.add_parser(
         "write-summary",
         help="Write a strict summary file.",
@@ -633,6 +690,48 @@ def cmd_run_executor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_start_job(args: argparse.Namespace) -> int:
+    run_dir = args.run_dir.expanduser().resolve()
+    configure_logging(run_dir / "logs")
+    print(
+        json.dumps(
+            start_job(
+                run_dir,
+                args.plan_id,
+                args.command,
+                name=args.name,
+                cwd=args.cwd,
+            ),
+            ensure_ascii=True,
+        )
+    )
+    return 0
+
+
+def cmd_wait_job(args: argparse.Namespace) -> int:
+    run_dir = args.run_dir.expanduser().resolve()
+    configure_logging(run_dir / "logs")
+    kwargs: dict[str, int] = {}
+    if args.wait_seconds is not None:
+        kwargs["wait_seconds"] = args.wait_seconds
+    if args.poll_seconds is not None:
+        kwargs["poll_seconds"] = args.poll_seconds
+    print(json.dumps(wait_for_job(run_dir, args.job_id, **kwargs), ensure_ascii=True))
+    return 0
+
+
+def cmd_tail_job(args: argparse.Namespace) -> int:
+    run_dir = args.run_dir.expanduser().resolve()
+    configure_logging(run_dir / "logs")
+    print(
+        json.dumps(
+            tail_job(run_dir, args.job_id, lines=args.lines),
+            ensure_ascii=True,
+        )
+    )
+    return 0
+
+
 def restore_branch_after_interrupt(run_dir: Path) -> None:
     try:
         manifest = load_manifest(run_dir)
@@ -758,6 +857,9 @@ def main(argv: list[str] | None = None) -> int:
         "init-config": cmd_init_config,
         "prepare-executor": cmd_prepare_executor,
         "run-executor": cmd_run_executor,
+        "start-job": cmd_start_job,
+        "wait-job": cmd_wait_job,
+        "tail-job": cmd_tail_job,
         "telegram-bot": cmd_telegram_bot,
         "write-summary": cmd_write_summary,
     }
@@ -765,7 +867,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "run_dir", None):
             interrupt_run_dir = args.run_dir.expanduser().resolve()
         if args.command == "tool":
-            if args.tool_command in {"run-executor", "poll-run", "prepare-executor", "write-summary", "iterate-plan"}:
+            if args.tool_command in {"run-executor", "poll-run", "prepare-executor", "write-summary", "iterate-plan", "start-job", "wait-job", "tail-job"}:
                 interrupt_run_dir = args.run_dir.expanduser().resolve()
             return tool_commands[args.tool_command](args)
         if args.command == "bot":

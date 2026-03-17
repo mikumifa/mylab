@@ -1,5 +1,11 @@
 from .assets import load_repo_asset, repo_asset_path, update_repo_asset
 from .executor import prepare_executor, run_executor
+from .job_monitor import (
+    tail_job,
+    wait_for_job,
+    start_job,
+    DEFAULT_JOB_WAIT_SECONDS,
+)
 from .formatting import format_repo_report
 from .notifications import (
     NotificationClient,
@@ -65,6 +71,10 @@ __all__ = [
     "load_telegram_settings",
     "configure_telegram_bot",
     "interactive_telegram_setup",
+    "start_job",
+    "wait_for_job",
+    "tail_job",
+    "DEFAULT_JOB_WAIT_SECONDS",
     "FLOW_MODE_LIMIT",
     "FLOW_MODE_STEP",
     "FLOW_MODE_UNLIMIT",

@@ -23,7 +23,12 @@ from mylab.services.run_control import (
     FLOW_MODE_STEP,
     FLOW_MODE_UNLIMIT,
 )
-from mylab.services.telegram_bot import consume_feedback_since, load_telegram_settings
+from mylab.services.telegram_bot import (
+    TelegramBotClient,
+    feedback_record_count,
+    consume_feedback_since,
+    load_telegram_settings,
+)
 from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
 from mylab.utils import utc_now
 
@@ -43,6 +48,7 @@ class SerialFlowRunner:
         self.confirm_continue = confirm_continue
         self.paths = init_run_dirs(run_dir)
         self.notifier = NotificationClient(run_dir, load_notification_settings(run_dir))
+        self._telegram_poll_warned = False
 
     def _next_pending(self, queue: QueueState) -> TaskRecord | None:
         for task in queue.tasks:
@@ -305,18 +311,40 @@ class SerialFlowRunner:
             "result report, repository shared asset, and preserved execution evidence."
         )
 
+    def _poll_telegram_feedback(self, settings=None) -> None:
+        telegram_settings = settings or load_telegram_settings()
+        if not telegram_settings.enabled:
+            return
+        try:
+            TelegramBotClient(telegram_settings).poll_once()
+            self._telegram_poll_warned = False
+        except Exception as exc:
+            if not self._telegram_poll_warned:
+                logger.info("Telegram polling failed during flow wait: {}", exc)
+                self._telegram_poll_warned = True
+
     def _wait_for_step_feedback(self, completed_iterations: int) -> str | None:
         settings = load_telegram_settings()
         poll_seconds = max(settings.poll_interval_seconds, 1)
         telegram_enabled = settings.enabled
+        wait_cursor: int | None = None
         warned = False
         while True:
+            if telegram_enabled:
+                self._poll_telegram_feedback(settings)
             manifest = load_manifest(self.run_dir)
-            feedback, cursor = consume_feedback_since(manifest.feedback_cursor)
+            if wait_cursor is None:
+                # Ignore stale step feedback that already existed before this wait began.
+                wait_cursor = max(
+                    int(manifest.feedback_cursor),
+                    feedback_record_count(scopes={"step"}),
+                )
+            feedback, cursor = consume_feedback_since(wait_cursor)
             if feedback:
                 manifest.feedback_cursor = cursor
                 save_manifest(self.paths, manifest)
                 return feedback
+            wait_cursor = cursor
             if self.confirm_continue is not None:
                 if not self.confirm_continue(completed_iterations):
                     return None
@@ -365,6 +393,9 @@ class SerialFlowRunner:
         manifest = load_manifest(self.run_dir)
         if not manifest.latest_plan_id:
             return True
+        settings = load_telegram_settings()
+        if settings.enabled:
+            self._poll_telegram_feedback(settings)
         if self.mode == FLOW_MODE_UNLIMIT:
             feedback, cursor = consume_feedback_since(manifest.feedback_cursor)
             if feedback:
@@ -498,17 +529,6 @@ class SerialFlowRunner:
                         step_limit=step_limit,
                     ):
                         break
-                if task.kind in {"run_executor", "write_summary"}:
-                    self.notifier.notify(
-                        f"mylab {task.kind} ok",
-                        (
-                            f"run={self.run_dir.name}\n"
-                            f"task={task.task_id}\n"
-                            f"kind={task.kind}\n"
-                            f"output={output}"
-                        ),
-                        notify_type="success",
-                    )
             except KeyboardInterrupt:
                 logger.info(
                     "Task interrupted | {} | {}", task.task_id, self._task_label(task)

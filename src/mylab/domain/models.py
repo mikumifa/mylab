@@ -12,6 +12,7 @@ class RunPaths:
     plans: Path
     prompts: Path
     logs: Path
+    jobs: Path
     results: Path
     summaries: Path
     commands: Path

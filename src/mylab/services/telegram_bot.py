@@ -363,6 +363,10 @@ def load_feedback_records(scopes: set[str] | None = None) -> list[dict[str, obje
     return useful
 
 
+def feedback_record_count(scopes: set[str] | None = None) -> int:
+    return len(load_feedback_records(scopes=scopes))
+
+
 def consume_feedback_since(cursor: int) -> tuple[str | None, int]:
     records = load_feedback_records(scopes={STEP_SCOPE})
     useful = records[max(cursor, 0) :]

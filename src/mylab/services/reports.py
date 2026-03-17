@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from mylab.config import SUMMARY_HEADINGS
 from mylab.logging import logger
@@ -93,6 +94,57 @@ def _extract_list_items(section: str) -> list[str]:
     return [item for item in items if item]
 
 
+def _extract_file_targets(*sections: str) -> list[str]:
+    pattern = re.compile(
+        r"(?<![\w/.-])(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.(?:py|md|sh|json|jsonl|yaml|yml|toml|txt)"
+    )
+    code_targets: list[str] = []
+    other_targets: list[str] = []
+    for section in sections:
+        for match in pattern.findall(section):
+            candidate = match.strip().lstrip("./")
+            if (
+                not candidate
+                or candidate.startswith(("logs/", "results/", "summaries/", "commands/"))
+            ):
+                continue
+            suffix = Path(candidate).suffix.lower()
+            bucket = (
+                code_targets
+                if suffix in {".py", ".sh", ".toml", ".yaml", ".yml"}
+                else other_targets
+            )
+            if candidate not in bucket:
+                bucket.append(candidate)
+    merged = code_targets if code_targets else other_targets
+    return merged[:3]
+
+
+def _fallback_next_iteration(
+    *,
+    goal_language: str,
+    source_content: str,
+    evidence: list[str],
+    artifacts: list[str],
+) -> list[str]:
+    targets = _extract_file_targets(source_content, "\n".join(evidence), "\n".join(artifacts))
+    target_text = ", ".join(targets) if targets else "当前结果直接涉及的实现代码"
+    if goal_language == "zh":
+        return [
+            f"基于 {target_text} 补充或调整与当前结论直接相关的代码；如果上一轮 work branch 仍然适合继续，可直接从该分支推进，不必强制从 main 重新切出。",
+            "对这些代码改动运行最小必要的实验或验证；只有在确实能推进用户原始目标时才增加新的实验。",
+            "补全文档，更新 result.md、summary.md 和共享资产，记录改了哪些代码、跑了哪些实验、结论如何支撑当前任务。",
+        ]
+    fallback_target_text = (
+        target_text if targets else "the implementation directly tied to the current result"
+    )
+    return [
+        f"Update the code directly tied to the current result, focusing on {fallback_target_text}; if the previous work branch is still the right base, continue from it instead of forcing a fresh branch from main.",
+        "Run only the smallest experiments or checks needed for those code changes, and add new experiments only when they materially advance the user's goal.",
+        "Finish the documentation by updating result.md, summary.md, and the shared asset with the code changes, validation steps, and the conclusion they support.",
+    ]
+
+
 def summarize_execution_outputs(
     run_dir: Path,
     plan_id: str,
@@ -100,45 +152,18 @@ def summarize_execution_outputs(
     goal_language: str,
     goal_text: str | None = None,
 ) -> tuple[str, list[str], list[str], list[str]]:
-    goal_hint = " ".join((goal_text or "").split())
     if goal_language == "zh":
         missing_report = "执行已完成，但没有找到结果报告。请直接检查 executor 日志。"
         empty_report = "执行已完成，但结果报告为空。"
-        write_report = (
-            f"围绕用户原始目标继续推进：{goal_hint}；先打开 executor 输出并补写结构化结果报告。"
-            if goal_hint
-            else "回到用户原始目标，先打开 executor 输出并补写结构化结果报告。"
-        )
-        rerun_report = (
-            f"围绕用户原始目标继续推进：{goal_hint}；重新执行 executor，或检查结果报告为什么为空。"
-            if goal_hint
-            else "回到用户原始目标，重新执行 executor，或检查结果报告为什么为空。"
-        )
-        review_next = (
-            f"围绕用户原始目标继续推进：{goal_hint}"
-            if goal_hint
-            else "回到用户原始目标，判断下一步是否还能实质性推进该目标；如果不能，就明确说明当前结论。"
-        )
+        write_report = "先打开 executor 输出并补写结构化结果报告，再据此决定代码、实验和文档上的下一步。"
+        rerun_report = "重新执行 executor，或检查结果报告为什么为空，然后补出下一步需要改的代码、实验和文档。"
     else:
         missing_report = (
             "Execution finished, but no result report was found. Inspect the executor logs directly."
         )
         empty_report = "Execution finished, but the result report is empty."
-        write_report = (
-            f"Continue only if it materially advances the user's original goal: {goal_hint}; first open the executor output and write a structured result report."
-            if goal_hint
-            else "Return to the user's original goal, then open the executor output and write a structured result report."
-        )
-        rerun_report = (
-            f"Continue only if it materially advances the user's original goal: {goal_hint}; re-run the executor or inspect why the result report was empty."
-            if goal_hint
-            else "Return to the user's original goal, then re-run the executor or inspect why the result report was empty."
-        )
-        review_next = (
-            f"Continue only if it materially advances the user's original goal: {goal_hint}"
-            if goal_hint
-            else "Return to the user's original goal and decide whether another iteration would materially advance it; if not, state the current conclusion clearly."
-        )
+        write_report = "Open the executor output and write a structured result report first, then derive the next code, experiment, and documentation steps from it."
+        rerun_report = "Re-run the executor or inspect why the result report was empty, then spell out the next code, experiment, and documentation steps."
     result_path = run_dir / "results" / f"{plan_id}.result.md"
     codex_last_path = run_dir / "results" / f"{plan_id}.codex.last.md"
     source_path = result_path if result_path.exists() else codex_last_path
@@ -190,7 +215,12 @@ def summarize_execution_outputs(
         _extract_markdown_section(content, "# Next Iteration")
     )
     if not next_iteration:
-        next_iteration = [review_next]
+        next_iteration = _fallback_next_iteration(
+            goal_language=goal_language,
+            source_content=content,
+            evidence=evidence,
+            artifacts=artifacts,
+        )
 
     return outcome, evidence, artifacts, next_iteration
 

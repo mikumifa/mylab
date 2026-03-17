@@ -43,15 +43,20 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             f"Structured log path: {log_path}",
             f"Plan index path: {run_dir / 'plans' / 'index.md'}",
             f"Repository shared asset path: {repo_asset_path(run_dir)}",
+            f"Job monitor metadata directory: {run_dir / 'jobs'}",
             "Rules:",
             "1. Do not hardcode experiment output paths outside the run directory.",
             "2. Preserve raw command output and intermediate artifacts.",
             "3. If execution is long-running, create or update runnable scripts before starting.",
-            "4. Keep the final report tied to concrete file paths and observed results.",
-            "5. Reuse the repository shared asset when relevant, update it with durable repo knowledge, and avoid known bad paths.",
-            "6. Do not silently shrink the intended training budget. If the experiment is supposed to run 500 epochs/steps, do not arbitrarily run 200 instead.",
-            "7. Early stopping, reduced search, or proxy runs are allowed only when justified by repo logic or explicit plan rationale, and the result report must state both the planned budget and the actual stop point.",
-            f"8. Write the result report and concise user-facing summary in {describe_language(manifest.goal_language)} to match the original goal language.",
+            "4. Training, deployment, Terraform, and build tasks must default to the mylab job monitor instead of running as direct foreground shell commands, even before you know whether they will take a long time.",
+            "5. Start monitored work with `mylab tool start-job --run-dir <run_dir> --plan-id <plan_id> --name <label> --command '<command>'`.",
+            "6. Wait on monitored work with `mylab tool wait-job --run-dir <run_dir> --job-id <job_id>`. This waits for up to one hour by default. If it returns status=running, call it again later instead of switching back to a long foreground shell command.",
+            "7. Only inspect logs on demand with `mylab tool tail-job --run-dir <run_dir> --job-id <job_id>`. Do not print long log tails on every poll; keep polling output concise to reduce token usage.",
+            "8. Keep the final report tied to concrete file paths and observed results.",
+            "9. Reuse the repository shared asset when relevant, update it with durable repo knowledge, and avoid known bad paths.",
+            "10. Do not silently change the training budget defined by the plan, repository, or user input.",
+            "11. Early stopping, reduced search, or proxy runs are allowed only when justified by repo logic or explicit plan rationale, and the result report must state both the authoritative budget source and the actual stop point.",
+            f"12. Write the result report and concise user-facing summary in {describe_language(manifest.goal_language)} to match the original goal language.",
             "",
             "Repository shared asset:",
             inherited_asset or "(none yet)",
@@ -66,7 +71,7 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             feedback_context or "(none yet)",
             "",
             "After completion, write a markdown result report and a concise summary.",
-            "The result report must explicitly mention the configured training budget, the actual executed budget, and any early-stopping condition when training is involved.",
+            "The result report must explicitly mention the authoritative training budget source, the actual executed budget, and any early-stopping condition when training is involved.",
             "",
             "Plan content:",
             "",
@@ -138,11 +143,14 @@ def run_executor(
             "plan_id": plan_id,
         },
     )
+
     def on_event(rendered: str, event_kind: str) -> None:
         if event_kind != "agent_message":
             return
         prefix = "[codex] agent:"
-        message = rendered[len(prefix) :].strip() if rendered.startswith(prefix) else rendered
+        message = (
+            rendered[len(prefix) :].strip() if rendered.startswith(prefix) else rendered
+        )
         notifier.notify_agent_message(plan_id, message)
 
     CodexRunner().run(spec, on_event=on_event)

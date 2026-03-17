@@ -96,7 +96,43 @@ class ReportsTest(unittest.TestCase):
             content,
         )
         self.assertIn("results/plan-002.codex.last.md", content)
+        self.assertIn("Finish the documentation by updating result.md, summary.md, and the shared asset", content)
         self.assertNotIn("Replace this placeholder", content)
+
+    def test_write_summary_generates_structured_next_iteration_from_result_report(self) -> None:
+        (self.paths.results / "plan-005.result.md").write_text(
+            "\n".join(
+                [
+                    "# Outcome",
+                    "MLP baseline now trains end-to-end on GPU.",
+                    "",
+                    "# Evidence",
+                    "1. src/example_lab/models/mlp.py",
+                    "2. results/train_metrics.json",
+                    "",
+                    "# Artifacts",
+                    "1. src/example_lab/train.py",
+                    "2. summaries/plan-005.summary.md",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        summary_path = write_summary(
+            self.paths.root,
+            "plan-005",
+            "completed",
+            "Execution finished. Replace this placeholder with an evidence-based summary.",
+            [f"logs/plan-005.codex.events.jsonl"],
+            [f"commands/plan-005.executor.sh"],
+            ["Inspect the result report and replace this placeholder summary."],
+        )
+
+        content = summary_path.read_text(encoding="utf-8")
+        self.assertIn("focusing on src/example_lab/models/mlp.py, src/example_lab/train.py", content)
+        self.assertIn("Run only the smallest experiments or checks needed", content)
+        self.assertIn("Finish the documentation by updating result.md, summary.md, and the shared asset", content)
 
     def test_write_summary_includes_git_delivery_metadata(self) -> None:
         manifest = load_manifest(self.paths.root)
@@ -146,7 +182,7 @@ class ReportsTest(unittest.TestCase):
 
         content = summary_path.read_text(encoding="utf-8")
         self.assertIn("执行已完成，但没有找到结果报告。", content)
-        self.assertIn("复现用户要求的主实验并给出结论", content)
+        self.assertIn("先打开 executor 输出并补写结构化结果报告", content)
 
 
 if __name__ == "__main__":

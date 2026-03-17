@@ -36,6 +36,7 @@ RUN_SUBDIRS = (
     "plans",
     "prompts",
     "logs",
+    "jobs",
     "results",
     "summaries",
     "commands",

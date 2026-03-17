@@ -22,9 +22,7 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
         self.repo.mkdir()
         self.paths = init_run_dirs(self.root / "run")
         goal_file = self.paths.inputs / "goal.txt"
-        write_text(
-            goal_file, "Train the model for 500 epochs and compare with the baseline."
-        )
+        write_text(goal_file, "Train the model and compare with the baseline.")
         self.manifest = RunManifest(
             run_id="run-001",
             repo_path=str(self.repo),
@@ -45,11 +43,11 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn(
-            "Do not weaken the experiment by silently shrinking epoch/step counts",
+            "Do not weaken the experiment by silently changing the training budget",
             prompt,
         )
         self.assertIn("Training budget guardrails:", prompt)
-        self.assertIn("If you stop early, record the configured budget", prompt)
+        self.assertIn("If you stop early, record the intended budget source", prompt)
 
     def test_executor_prompt_mentions_no_silent_undertraining(self) -> None:
         write_text(
@@ -65,7 +63,7 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
                     "- generated_at: 2026-03-17T00:00:00Z",
                     "",
                     "# Experiment Goal",
-                    "Train for 500 epochs.",
+                    "Train and evaluate the model.",
                     "",
                     "# Investigation Questions",
                     "1. Does it converge?",
@@ -84,9 +82,26 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
 
         prompt = executor_prompt(self.paths.root, "plan-001")
 
-        self.assertIn("do not arbitrarily run 200 instead", prompt.lower())
-        self.assertIn("planned budget and the actual stop point", prompt)
-        self.assertIn("configured training budget, the actual executed budget", prompt)
+        self.assertIn(
+            "do not silently change the training budget defined by the plan, repository, or user input",
+            prompt.lower(),
+        )
+        self.assertIn(
+            "training, deployment, terraform, and build tasks must default to the mylab job monitor",
+            prompt.lower(),
+        )
+        self.assertIn("mylab tool start-job", prompt)
+        self.assertIn("mylab tool wait-job", prompt)
+        self.assertIn("keep polling output concise to reduce token usage", prompt)
+        self.assertIn(
+            "authoritative budget source and the actual stop point",
+            prompt,
+        )
+        self.assertIn(
+            "authoritative training budget source, the actual executed budget",
+            prompt,
+        )
+        self.assertIn("This waits for up to one hour by default", prompt)
 
 
 if __name__ == "__main__":

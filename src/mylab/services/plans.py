@@ -76,9 +76,9 @@ def default_deliverables(plan_id: str) -> list[str]:
 
 def training_budget_rule_lines() -> list[str]:
     return [
-        "If the experiment has a stated epoch/step/training budget, keep that intended budget unless the repository already defines a different default.",
-        "Early stopping or other speedup strategies are allowed only when they preserve the experiment's validity; do not silently cut the budget to a much smaller run.",
-        "If you stop early, record the configured budget, the actual stop point, and the reason in the result report and logs.",
+        "If the experiment specifies a training budget in the plan, repository, or user input, follow that source of truth unless the repository already enforces a different valid default.",
+        "Early stopping or other speedup strategies are allowed only when they preserve the experiment's validity; do not silently change the training budget.",
+        "If you stop early, record the intended budget source, the actual stop point, and the reason in the result report and logs.",
     ]
 
 
@@ -121,7 +121,7 @@ def render_plan_markdown(
 3. Raw execution logs must be preserved without truncation.
 4. Final summaries must reference concrete artifact paths.
 5. Preserve the intended training budget unless an explicit early-stop rule or repo default justifies stopping earlier.
-6. If training stops early, record the planned budget, actual stop point, and stopping reason.
+6. If training stops early, record the authoritative budget source, actual stop point, and stopping reason.
 """
 
 
@@ -220,8 +220,8 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
                 f"Source branch: {manifest.source_branch}",
                 f"Write the final result back to: {plan_path}",
                 "If a repository shared asset is present, inherit its stable notes and avoid repeating known failures.",
-                "Do not weaken the experiment by silently shrinking epoch/step counts; preserve the intended training budget unless the repo already specifies a different valid default.",
-                "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and what minimum budget will still be executed.",
+                "Do not weaken the experiment by silently changing the training budget defined by the plan, repository, or user input.",
+                "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and which budget source remains authoritative.",
                 f"Write user-facing planning text in {output_language} to match the original goal language.",
                 "",
                 "Repository shared asset:",
@@ -306,8 +306,8 @@ def create_iterated_plan(
                 f"Parent plan: {parent_plan_path}",
                 f"Write the final result back to: {plan_path}",
                 f"Feedback: {feedback}",
-                "Do not weaken the experiment by silently shrinking epoch/step counts; preserve the intended training budget unless the repo already specifies a different valid default.",
-                "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and what minimum budget will still be executed.",
+                "Do not weaken the experiment by silently changing the training budget defined by the plan, repository, or user input.",
+                "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and which budget source remains authoritative.",
                 f"Write user-facing planning text in {output_language} to match the original goal language.",
                 "",
                 "Repository shared asset:",
