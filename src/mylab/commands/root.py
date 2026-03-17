@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+import tempfile
 
 from mylab.codex import get_codex_status
 from mylab.flow import SerialFlowRunner
@@ -12,6 +13,7 @@ from mylab.services import (
     FLOW_MODE_LIMIT,
     FLOW_MODE_STEP,
     FLOW_MODE_UNLIMIT,
+    NotificationClient,
     TelegramBotClient,
     bootstrap_run,
     create_initial_plan,
@@ -25,6 +27,7 @@ from mylab.services import (
     prompt_for_flow_mode,
     resolve_notification_settings,
     run_executor,
+    telegram_notifications_enabled,
     write_sample_config,
     write_summary,
 )
@@ -110,8 +113,9 @@ def build_parser() -> argparse.ArgumentParser:
             "     mylab run --repo /path/to/repo --goal ./goal.md\n"
             "  2. Resume an existing run directory:\n"
             "     mylab run --run-dir .mylab_runs/<run_id>\n"
-            "  3. Add a new iteration after reviewing results:\n"
-            "     mylab queue-iteration --run-dir .mylab_runs/<run_id> --parent-plan plan-001 --feedback 'next step'\n\n"
+            "  3. Continue the same run across full iterations:\n"
+            "     mylab run --run-dir .mylab_runs/<run_id> --mode step\n"
+            "     mylab run --run-dir .mylab_runs/<run_id> --mode unlimit\n\n"
             "Advanced tools:\n"
             "  - Internal/low-level commands live under `mylab tool ...`\n"
             "  - Example: mylab tool prepare-executor --run-dir .mylab_runs/<run_id>\n\n"
@@ -183,8 +187,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     queue_iter_cmd = subparsers.add_parser(
         "queue-iteration",
-        help="Enqueue a plan iteration pipeline.",
-        description="Append an iteration request to the run queue. The serial runner will create the new plan later.",
+        help="Compatibility command for manually injecting the next iteration.",
+        description="Compatibility-only command. Normal use should continue the run directly so each completed plan leads to the next plan.",
         formatter_class=HELP_FORMATTER,
     )
     queue_iter_cmd.add_argument(
@@ -220,12 +224,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional config path override. Defaults to ~/.mylab/config.toml.",
     )
 
+    bot_test_cmd = bot_subparsers.add_parser(
+        "test",
+        help="Test all configured bot integrations.",
+        description="Validate configured bot integrations and send a test notification when possible.",
+        formatter_class=HELP_FORMATTER,
+    )
+    bot_test_cmd.add_argument(
+        "--config-path",
+        type=Path,
+        help="Optional config path override. Defaults to ~/.mylab/config.toml.",
+    )
+
     tool_cmd = subparsers.add_parser(
         "tool",
         help="Advanced low-level commands.",
         description=(
             "Low-level or internal commands for debugging, inspection, and manual control.\n"
-            "Most users should prefer: run, queue-iteration."
+            "Most users should prefer: run."
         ),
         formatter_class=HELP_FORMATTER,
     )
@@ -641,6 +657,18 @@ def cmd_run_executor(args: argparse.Namespace) -> int:
     return 0
 
 
+def restore_branch_after_interrupt(run_dir: Path) -> None:
+    try:
+        manifest = load_manifest(run_dir)
+    except Exception:
+        return
+    if manifest.work_branch and manifest.original_branch:
+        try:
+            restore_original_branch(run_dir, manifest)
+        except Exception:
+            logger.exception("Failed to restore branch after Ctrl+C")
+
+
 def cmd_write_summary(args: argparse.Namespace) -> int:
     configure_logging(args.run_dir.expanduser().resolve() / "logs")
     print(
@@ -679,9 +707,67 @@ def cmd_bot_telegram(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bot_test(args: argparse.Namespace) -> int:
+    config_path = args.config_path or None
+    ok = True
+    tested = 0
+
+    telegram_settings = load_telegram_settings(config_path)
+    if telegram_settings.enabled:
+        tested += 1
+        try:
+            me = TelegramBotClient(telegram_settings).get_me()
+            print(
+                "telegram bot ok "
+                f"id={me.get('id', '-')} username={me.get('username', '-')}"
+            )
+        except Exception as exc:
+            emit_progress("[error]", f"telegram bot test failed: {exc}", color="red")
+            ok = False
+    else:
+        print("telegram bot not configured")
+
+    notification_settings = resolve_notification_settings(config_path)
+    if notification_settings.enabled:
+        tested += 1
+        if not telegram_notifications_enabled():
+            emit_progress(
+                "[error]",
+                "notifications are currently paused by Telegram command /off",
+                color="red",
+            )
+            ok = False
+        else:
+            with tempfile.TemporaryDirectory(prefix="mylab-bot-test-") as temp_dir:
+                run_dir = Path(temp_dir) / "run"
+                init_run_dirs(run_dir)
+                notifier = NotificationClient(run_dir, notification_settings)
+                sent = notifier.notify(
+                    "mylab bot test",
+                    "This is a test notification from mylab bot test.",
+                    notify_type="info",
+                )
+                if sent:
+                    print("notification endpoints ok")
+                else:
+                    emit_progress(
+                        "[error]",
+                        "notification test failed; check bot token, chat id, and apprise setup",
+                        color="red",
+                    )
+                    ok = False
+    else:
+        print("notification endpoints not configured")
+
+    if tested == 0:
+        raise RuntimeError("no bot integrations are configured")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    interrupt_run_dir: Path | None = None
     commands = {
         "bot": cmd_bot_telegram,
         "run": cmd_run_flow,
@@ -700,11 +786,22 @@ def main(argv: list[str] | None = None) -> int:
         "write-summary": cmd_write_summary,
     }
     try:
+        if getattr(args, "run_dir", None):
+            interrupt_run_dir = args.run_dir.expanduser().resolve()
         if args.command == "tool":
+            if args.tool_command in {"run-executor", "poll-run", "prepare-executor", "write-summary", "iterate-plan"}:
+                interrupt_run_dir = args.run_dir.expanduser().resolve()
             return tool_commands[args.tool_command](args)
         if args.command == "bot":
+            if args.bot_command == "test":
+                return cmd_bot_test(args)
             return commands[args.command](args)
         return commands[args.command](args)
+    except KeyboardInterrupt:
+        if interrupt_run_dir is not None:
+            restore_branch_after_interrupt(interrupt_run_dir)
+        emit_progress("[interrupt]", "received Ctrl+C", "exiting gracefully", color="yellow")
+        return 130
     except (RuntimeError, ValueError) as exc:
         emit_progress("[error]", str(exc), color="red")
         return 1

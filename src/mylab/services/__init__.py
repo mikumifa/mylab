@@ -6,6 +6,7 @@ from .notifications import (
     NotificationSettings,
     load_notification_settings,
     resolve_notification_settings,
+    telegram_notifications_enabled,
 )
 from .telegram_bot import (
     configure_telegram_bot,
@@ -50,10 +51,10 @@ __all__ = [
     "prepare_executor",
     "repo_asset_path",
     "resolve_notification_settings",
+    "telegram_notifications_enabled",
     "render_summary_markdown",
     "run_executor",
     "TelegramBotClient",
-    "telegram_notifications_enabled",
     "write_sample_config",
     "update_repo_asset",
     "validate_summary_markdown",

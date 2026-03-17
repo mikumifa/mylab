@@ -5,6 +5,7 @@ from pathlib import Path
 from mylab.codex import CodexExecSpec, CodexRunner
 from mylab.logging import logger
 from mylab.services.assets import load_repo_asset, repo_asset_path
+from mylab.services.notifications import NotificationClient, load_notification_settings
 from mylab.services.plans import training_budget_rule_lines
 from mylab.services.telegram_bot import load_feedback_context, load_telegram_settings
 from mylab.storage import append_jsonl, write_text
@@ -103,6 +104,7 @@ def run_executor(
     run_dir: Path, plan_id: str, model: str | None, full_auto: bool
 ) -> Path:
     manifest = load_manifest(run_dir)
+    notifier = NotificationClient(run_dir, load_notification_settings(run_dir))
     prompt_path = run_dir / "prompts" / f"{plan_id}.executor.prompt.md"
     output_path = run_dir / "results" / f"{plan_id}.codex.last.md"
     event_path = run_dir / "logs" / f"{plan_id}.codex.events.jsonl"
@@ -125,7 +127,14 @@ def run_executor(
             "plan_id": plan_id,
         },
     )
-    CodexRunner().run(spec)
+    def on_event(rendered: str, event_kind: str) -> None:
+        if event_kind != "agent_message":
+            return
+        prefix = "[codex] agent:"
+        message = rendered[len(prefix) :].strip() if rendered.startswith(prefix) else rendered
+        notifier.notify_agent_message(plan_id, message)
+
+    CodexRunner().run(spec, on_event=on_event)
     append_jsonl(
         run_dir / "logs" / "iteration-agent.jsonl",
         {

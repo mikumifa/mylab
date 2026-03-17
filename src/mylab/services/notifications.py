@@ -167,3 +167,13 @@ class NotificationClient:
             ok=ok,
         )
         return ok
+
+    def notify_agent_message(self, plan_id: str, text: str) -> bool:
+        message = text.strip()
+        if not message:
+            return False
+        return self.notify(
+            f"mylab agent {plan_id}",
+            message[:4000],
+            notify_type="info",
+        )

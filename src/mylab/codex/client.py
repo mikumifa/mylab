@@ -5,6 +5,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from mylab.logging import colorize, emit_progress, logger
 from mylab.utils import shell_join
@@ -46,43 +47,46 @@ class CodexExecSpec:
 
 
 class CodexRunner:
-    def _render_event(self, line: str) -> str | None:
+    def _render_event(self, line: str) -> tuple[str | None, str | None]:
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
-            return f"[codex] {line}"
+            return f"[codex] {line}", "raw"
 
         event_type = event.get("type")
         if not isinstance(event_type, str):
-            return f"[codex] {line}"
+            return f"[codex] {line}", "raw"
 
         if event_type in {"thread.started", "turn.started"}:
-            return f"[codex] {event_type}"
+            return f"[codex] {event_type}", event_type
         if event_type == "turn.completed":
-            return "[codex] turn.completed"
+            return "[codex] turn.completed", event_type
         if event_type == "turn.failed":
             error = event.get("error", {})
             if isinstance(error, dict):
-                return f"[codex] turn.failed: {error.get('message', 'unknown error')}"
-            return "[codex] turn.failed"
+                return (
+                    f"[codex] turn.failed: {error.get('message', 'unknown error')}",
+                    event_type,
+                )
+            return "[codex] turn.failed", event_type
         if event_type == "error":
-            return f"[codex] error: {event.get('message', 'unknown error')}"
+            return f"[codex] error: {event.get('message', 'unknown error')}", event_type
 
         item = event.get("item")
         if isinstance(item, dict):
             item_type = item.get("type")
             if item_type == "agent_message":
                 text = str(item.get("text", "")).strip().replace("\n", " ")
-                return f"[codex] agent: {text[:240]}"
+                return f"[codex] agent: {text[:240]}", item_type
             if item_type == "command_execution":
                 command = str(item.get("command", "")).strip()
                 status = str(item.get("status", "")).strip()
                 if command:
-                    return f"[codex] command ({status or 'event'}): {command}"
+                    return f"[codex] command ({status or 'event'}): {command}", item_type
             if item_type == "todo_list":
-                return "[codex] todo_list updated"
+                return "[codex] todo_list updated", item_type
 
-        return None
+        return None, None
 
     def _emit_rendered_event(self, rendered: str) -> None:
         if not rendered.startswith("[codex] "):
@@ -113,7 +117,11 @@ class CodexRunner:
         script_path.chmod(0o755)
         return script_path
 
-    def run(self, spec: CodexExecSpec) -> Path:
+    def run(
+        self,
+        spec: CodexExecSpec,
+        on_event: Callable[[str, str], None] | None = None,
+    ) -> Path:
         logger.info("Executing Codex command in {}", spec.repo_path)
         with spec.prompt_path.open("r", encoding="utf-8") as prompt_handle:
             process = subprocess.Popen(
@@ -128,9 +136,11 @@ class CodexRunner:
                 for line in process.stdout:
                     log_handle.write(line)
                     log_handle.flush()
-                    rendered = self._render_event(line.rstrip("\n"))
+                    rendered, event_kind = self._render_event(line.rstrip("\n"))
                     if rendered:
                         self._emit_rendered_event(rendered)
+                        if on_event and event_kind:
+                            on_event(rendered, event_kind)
             return_code = process.wait()
             if return_code != 0:
                 raise subprocess.CalledProcessError(return_code, process.args)

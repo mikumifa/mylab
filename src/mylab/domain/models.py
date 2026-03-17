@@ -35,6 +35,7 @@ class RunManifest:
     notify_urls: list[str] = field(default_factory=list)
     notify_config_path: str | None = None
     notify_tag: str | None = None
+    feedback_cursor: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

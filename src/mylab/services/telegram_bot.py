@@ -300,6 +300,29 @@ def load_feedback_context(limit: int | None = None) -> str:
     return "\n".join(snippets)
 
 
+def load_feedback_records() -> list[dict[str, object]]:
+    if not TELEGRAM_INBOX_FILE.exists():
+        return []
+    lines = TELEGRAM_INBOX_FILE.read_text(encoding="utf-8").splitlines()
+    records = [json.loads(line) for line in lines if line.strip()]
+    return [item for item in records if item.get("kind") in {"text", "document"}]
+
+
+def consume_feedback_since(cursor: int) -> tuple[str | None, int]:
+    records = load_feedback_records()
+    useful = records[max(cursor, 0) :]
+    if not useful:
+        return None, len(records)
+    snippets = []
+    for item in useful:
+        if item.get("kind") == "text":
+            snippets.append(str(item.get("text", "")).strip())
+        else:
+            snippets.append(f"file: {item.get('stored_path', '-')}")
+    feedback = "\n".join(snippet for snippet in snippets if snippet)
+    return feedback or None, len(records)
+
+
 class TelegramBotClient:
     def __init__(self, settings: TelegramSettings) -> None:
         self.settings = settings
@@ -341,6 +364,13 @@ class TelegramBotClient:
         result = payload.get("result", [])
         return result if isinstance(result, list) else []
 
+    def get_me(self) -> dict[str, object]:
+        payload = self._get("getMe", {})
+        result = payload.get("result", {})
+        if not isinstance(result, dict):
+            raise RuntimeError("telegram getMe returned no result")
+        return result
+
     def send_message(self, chat_id: int, text: str) -> None:
         self._post("sendMessage", {"chat_id": chat_id, "text": text})
 
@@ -368,6 +398,17 @@ class TelegramBotClient:
 
     def _handle_command(self, chat_id: int, text: str) -> None:
         lowered = text.strip().lower()
+        if lowered == "/test":
+            self.send_message(chat_id, "mylab telegram bot ok.")
+            self._record_inbox(
+                {
+                    "ts": utc_now(),
+                    "kind": "command",
+                    "chat_id": chat_id,
+                    "text": "/test",
+                }
+            )
+            return
         if lowered == "/on":
             self.state["notifications_enabled"] = True
             save_telegram_state(self.state)
@@ -384,7 +425,7 @@ class TelegramBotClient:
                 {"ts": utc_now(), "kind": "command", "chat_id": chat_id, "text": "/off"}
             )
             return
-        self.send_message(chat_id, "Supported commands: /on, /off")
+        self.send_message(chat_id, "Supported commands: /test, /on, /off")
 
     def _handle_text(self, chat_id: int, text: str, message_id: int) -> None:
         self._record_inbox(

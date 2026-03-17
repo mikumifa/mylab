@@ -141,14 +141,18 @@ class TelegramBotTest(unittest.TestCase):
         updates = [
             {
                 "update_id": 1,
-                "message": {"message_id": 10, "chat": {"id": 42}, "text": "/off"},
+                "message": {"message_id": 9, "chat": {"id": 42}, "text": "/test"},
             },
             {
                 "update_id": 2,
-                "message": {"message_id": 11, "chat": {"id": 42}, "text": "/on"},
+                "message": {"message_id": 10, "chat": {"id": 42}, "text": "/off"},
             },
             {
                 "update_id": 3,
+                "message": {"message_id": 11, "chat": {"id": 42}, "text": "/on"},
+            },
+            {
+                "update_id": 4,
                 "message": {
                     "message_id": 12,
                     "chat": {"id": 42},
@@ -156,7 +160,7 @@ class TelegramBotTest(unittest.TestCase):
                 },
             },
             {
-                "update_id": 4,
+                "update_id": 5,
                 "message": {
                     "message_id": 13,
                     "chat": {"id": 42},
@@ -171,17 +175,17 @@ class TelegramBotTest(unittest.TestCase):
 
         processed = bot.poll_once()
 
-        self.assertEqual(processed, 4)
+        self.assertEqual(processed, 5)
         state = json.loads(telegram_bot.TELEGRAM_STATE_FILE.read_text(encoding="utf-8"))
         self.assertTrue(state["notifications_enabled"])
-        self.assertEqual(state["last_update_id"], 4)
+        self.assertEqual(state["last_update_id"], 5)
 
         inbox_lines = telegram_bot.TELEGRAM_INBOX_FILE.read_text(
             encoding="utf-8"
         ).splitlines()
         records = [json.loads(line) for line in inbox_lines]
         kinds = [record["kind"] for record in records]
-        self.assertEqual(kinds, ["command", "command", "text", "document"])
+        self.assertEqual(kinds, ["command", "command", "command", "text", "document"])
         self.assertTrue((telegram_bot.TELEGRAM_FILE_DIR / "13-notes.txt").exists())
 
         context = load_feedback_context(limit=5)
@@ -190,6 +194,7 @@ class TelegramBotTest(unittest.TestCase):
         self.assertEqual(
             bot.sent_messages,
             [
+                (42, "mylab telegram bot ok."),
                 (42, "mylab notifications paused."),
                 (42, "mylab notifications enabled."),
                 (42, "Feedback saved for the next iteration."),

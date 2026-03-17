@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+import time
 from typing import Callable
 
 from mylab.domain import QueueState, TaskRecord
@@ -17,7 +19,8 @@ from mylab.services.run_control import (
     FLOW_MODE_STEP,
     FLOW_MODE_UNLIMIT,
 )
-from mylab.storage.runs import init_run_dirs, load_manifest
+from mylab.services.telegram_bot import consume_feedback_since, load_telegram_settings
+from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
 from mylab.utils import utc_now
 
 
@@ -254,47 +257,122 @@ class SerialFlowRunner:
             return restore_original_branch(self.run_dir, manifest)
         raise ValueError(f"unsupported task kind: {task.kind}")
 
+    def _restore_after_interruption(self) -> None:
+        try:
+            manifest = load_manifest(self.run_dir)
+            if manifest.work_branch and manifest.original_branch:
+                restore_original_branch(self.run_dir, manifest)
+        except Exception:
+            logger.exception("Failed to restore branch after interruption")
+
     def _step_limit(self, limit: int | None) -> int:
         if isinstance(limit, int) and limit > 0:
             return limit
         return 1
 
-    def _should_continue_step_mode(
+    def _enqueue_iteration_request(
+        self, queue: QueueState, parent_plan_id: str, feedback: str
+    ) -> None:
+        self._append_task(
+            queue,
+            "iterate_plan",
+            {
+                "parent_plan_id": parent_plan_id,
+                "feedback": feedback,
+                "model": None,
+            },
+        )
+
+    def _auto_feedback(self) -> str:
+        return (
+            "Continue to the next full iteration based on the latest plan, summary, "
+            "result report, repository shared asset, and preserved execution evidence."
+        )
+
+    def _wait_for_step_feedback(self, completed_iterations: int) -> str | None:
+        settings = load_telegram_settings()
+        poll_seconds = max(settings.poll_interval_seconds, 1)
+        warned = False
+        while True:
+            manifest = load_manifest(self.run_dir)
+            feedback, cursor = consume_feedback_since(manifest.feedback_cursor)
+            if feedback:
+                manifest.feedback_cursor = cursor
+                save_manifest(self.paths, manifest)
+                return feedback
+            if self.confirm_continue is not None:
+                if not self.confirm_continue(completed_iterations):
+                    return None
+                return self._auto_feedback()
+            if sys.stdin.isatty():
+                text = input(
+                    f"Step mode: iteration {completed_iterations} finished. "
+                    "Enter next instruction, or /stop to stop waiting: "
+                ).strip()
+                if not text:
+                    continue
+                if text.lower() in {"/stop", "stop"}:
+                    return None
+                return text
+            if not warned:
+                logger.info(
+                    "Step mode waiting for Telegram feedback after {} completed iteration(s)",
+                    completed_iterations,
+                )
+                emit_progress(
+                    "[wait]",
+                    "step mode",
+                    "waiting for next-iteration instruction from Telegram",
+                    color="yellow",
+                )
+                warned = True
+            time.sleep(poll_seconds)
+
+    def _maybe_chain_next_iteration(
         self,
         queue: QueueState,
+        *,
         completed_iterations: int,
-        iteration_in_progress: bool,
         step_limit: int,
-    ) -> tuple[bool, int]:
-        if iteration_in_progress or completed_iterations < step_limit:
-            return True, step_limit
-        if self._next_pending(queue) is None:
-            return False, step_limit
-        if self.confirm_continue is None:
-            logger.info(
-                "Serial flow blocked after {} completed iteration(s) in step mode",
-                completed_iterations,
-            )
-            emit_progress(
-                "[wait]",
-                "step mode",
-                "awaiting explicit continue",
-                color="yellow",
-            )
-            return False, step_limit
-        if not self.confirm_continue(completed_iterations):
-            logger.info(
-                "Serial flow stopped by operator after {} completed iteration(s)",
-                completed_iterations,
-            )
-            emit_progress(
-                "[wait]",
-                "step mode",
-                "stopped by operator",
-                color="yellow",
-            )
-            return False, step_limit
-        return True, step_limit + 1
+    ) -> bool:
+        if self._next_pending(queue) is not None:
+            return True
+        manifest = load_manifest(self.run_dir)
+        if not manifest.latest_plan_id:
+            return True
+        if self.mode == FLOW_MODE_UNLIMIT:
+            feedback, cursor = consume_feedback_since(manifest.feedback_cursor)
+            if feedback:
+                manifest.feedback_cursor = cursor
+                save_manifest(self.paths, manifest)
+                self._enqueue_iteration_request(
+                    queue, manifest.latest_plan_id, feedback
+                )
+            else:
+                self._enqueue_iteration_request(
+                    queue, manifest.latest_plan_id, self._auto_feedback()
+                )
+            return True
+        if self.mode == FLOW_MODE_STEP:
+            if completed_iterations < step_limit:
+                feedback, cursor = consume_feedback_since(manifest.feedback_cursor)
+                if feedback:
+                    manifest.feedback_cursor = cursor
+                    save_manifest(self.paths, manifest)
+                    self._enqueue_iteration_request(
+                        queue, manifest.latest_plan_id, feedback
+                    )
+                else:
+                    self._enqueue_iteration_request(
+                        queue, manifest.latest_plan_id, self._auto_feedback()
+                    )
+                return True
+            feedback = self._wait_for_step_feedback(completed_iterations)
+            if not feedback:
+                return False
+            self._enqueue_iteration_request(queue, manifest.latest_plan_id, feedback)
+            return True
+        return True
 
     def run_until_blocked(self, limit: int | None) -> list[dict[str, str]]:
         logger.info(
@@ -317,15 +395,20 @@ class SerialFlowRunner:
                 and not iteration_in_progress
             ):
                 break
-            if self.mode == FLOW_MODE_STEP:
-                should_continue, step_limit = self._should_continue_step_mode(
-                    queue, completed_iterations, iteration_in_progress, step_limit
-                )
-                if not should_continue:
-                    break
             task = self._next_pending(queue)
             if task is None:
-                break
+                if self.mode in {FLOW_MODE_STEP, FLOW_MODE_UNLIMIT}:
+                    if not self._maybe_chain_next_iteration(
+                        queue,
+                        completed_iterations=completed_iterations,
+                        step_limit=step_limit,
+                    ):
+                        break
+                    task = self._next_pending(queue)
+                    if task is None:
+                        break
+                else:
+                    break
             if task.kind == "run_executor" and not self.allow_exec:
                 logger.info(
                     "Serial flow blocked on {} ({})",
@@ -384,6 +467,12 @@ class SerialFlowRunner:
                 if self._ends_iteration(task):
                     completed_iterations += 1
                     iteration_in_progress = False
+                    if not self._maybe_chain_next_iteration(
+                        queue,
+                        completed_iterations=completed_iterations,
+                        step_limit=step_limit,
+                    ):
+                        break
                 if task.kind in {"run_executor", "write_summary"}:
                     self.notifier.notify(
                         f"mylab {task.kind} ok",
@@ -395,6 +484,39 @@ class SerialFlowRunner:
                         ),
                         notify_type="success",
                     )
+            except KeyboardInterrupt:
+                logger.info(
+                    "Task interrupted | {} | {}", task.task_id, self._task_label(task)
+                )
+                emit_progress(
+                    "[interrupt]",
+                    f"{task.task_id} {self._task_label(task)}",
+                    "received Ctrl+C",
+                    color="yellow",
+                )
+                if task.kind != "restore_branch":
+                    self._restore_after_interruption()
+                task.status = "failed"
+                task.finished_at = utc_now()
+                task.error = "interrupted by user"
+                processed.append(
+                    {
+                        "task_id": task.task_id,
+                        "kind": task.kind,
+                        "output": "INTERRUPTED: user requested stop",
+                    }
+                )
+                self.notifier.notify(
+                    f"mylab task interrupted: {task.kind}",
+                    (
+                        f"run={self.run_dir.name}\n"
+                        f"task={task.task_id}\n"
+                        f"kind={task.kind}\n"
+                        "reason=user_interrupt"
+                    ),
+                    notify_type="warning",
+                )
+                break
             except Exception as exc:
                 logger.exception(
                     "Task failed | {} | {}", task.task_id, self._task_label(task)
@@ -406,12 +528,7 @@ class SerialFlowRunner:
                     color="red",
                 )
                 if task.kind != "restore_branch":
-                    try:
-                        manifest = load_manifest(self.run_dir)
-                        if manifest.work_branch and manifest.original_branch:
-                            restore_original_branch(self.run_dir, manifest)
-                    except Exception:
-                        logger.exception("Failed to restore branch after task failure")
+                    self._restore_after_interruption()
                 task.status = "failed"
                 task.finished_at = utc_now()
                 task.error = str(exc)
