@@ -31,9 +31,10 @@ src/mylab/
 - 所有中间结果统一保存在环境变量 `MYLAB_RUNS_DIR` 指定的位置；未设置时默认为当前目录下的 `.mylab_runs/`。
 - 如果 run 目录落在论文实验仓库内部，程序会自动把对应路径写入该仓库的 `.gitignore`，避免实验产物被 Git 跟踪。
 - 新 run 开始前，目标仓库必须已有提交且工作区干净；bootstrap 阶段会自动补齐运行目录 `.gitignore` 条目，并把仓库级 `mylab-job-monitor` skill 安装到 `.codex/skills/`。这些 bootstrap 资产会被自动提交一次，方便后续 Codex 在该仓库直接复用。
-- 所有迭代共享一个仓库级资产文件，沉淀“怎么跑、注意事项、代码位置、重复坑点”等长期信息。
+- 每个 run 在自己的 `assets/` 目录下维护独立共享资产，不读取其他 run 的资产，保证 run 之间完全隔离。
 - `plans/index.md` 和 `plans/index.jsonl` 维护每轮最短摘要，便于后续模型先做快速检索。
 - 通知层基于 Apprise，单次接入即可复用 Telegram、Discord、Slack、邮件、Webhook 等多个平台，配置固定放在用户目录 `~/.mylab/config.toml`。
+- 计划生成现在显式依赖两类 workflow skill：`mylab-structure-tuning` 和 `mylab-parameter-tuning`。它们定义 frontmatter 精华字段、正文叙事风格和引用文件组织方式。
 
 ## 目录约定
 
@@ -42,6 +43,7 @@ src/mylab/
 ```text
 $MYLAB_RUNS_DIR/<run_id>/
   inputs/
+  assets/
   plans/
   prompts/
   logs/
@@ -54,7 +56,8 @@ $MYLAB_RUNS_DIR/<run_id>/
 
 说明：
 
-- `plans/`: 严格格式的 `plan-XXX.md`，以及 `index.md` / `index.jsonl`
+- `assets/`: 当前 run 独享的仓库级共享资产，例如 `assets/repo.md`
+- `plans/`: `index.md` / `index.jsonl` 加上每个 plan 自己的子目录
 - `prompts/`: 给 codex 执行上下文的 prompt 文件
 - `logs/`: 结构化 `jsonl` 日志和 codex 事件流，统一主日志为 `iteration-agent.jsonl`
 - `results/`: 执行结果、格式检查报告、codex 最后一条消息
@@ -62,13 +65,41 @@ $MYLAB_RUNS_DIR/<run_id>/
 - `commands/`: 可重复执行的 shell 脚本
 - `queue/`: 内部阶段状态，不作为用户层概念
 
-在 run 目录之外，还会维护仓库级共享资产：
+plan 现在按最小执行单元分目录组织：
 
 ```text
-$MYLAB_RUNS_DIR/assets/<repo-key>.md
+$MYLAB_RUNS_DIR/<run_id>/plans/plan-001/
+  plan.md
+  plan.prompt.md
+  executor.prompt.md
+  executor.sh
+  result.md
+  summary.md
+  git.md
+  codex.last.md
+  codex.events.jsonl
+  executor.jsonl
+  references/
+    shared-asset.md
+    persistent-feedback.md
+    recent-feedback.md
+    parent-plan.md
 ```
 
-这个文件存放跨 run、跨 plan 仍然成立的共性知识。
+其中 `plan.md` 使用三层结构：
+
+1. YAML frontmatter: 让模型先快速判断这个 plan 是否值得复用。
+2. Markdown 正文: 保持固定 heading，描述目标、步骤、交付物和结果收集规则。
+3. `references/` 引用文件: 只有正文引用到时才需要继续加载，避免一次性把所有上下文塞进模型。
+
+frontmatter 不只放定位字段，还会放由 workflow skill 约束出来的“精华摘要”，例如：
+
+- `plan_essence`
+- `decision_focus`
+- `expected_signal`
+- `next_iteration_hook`
+
+这几个字段在“调结构”和“调参”两种流程下会有不同风格。
 
 ## 轮询结构
 
@@ -101,6 +132,7 @@ run
 # Investigation Questions
 # Execution Plan
 # Deliverables
+# Referenced Files
 # Result Collection Rules
 ```
 

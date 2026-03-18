@@ -8,6 +8,7 @@ from mylab.logging import logger
 from mylab.services.repo_ignore import ensure_run_dir_ignored
 from mylab.services.repo_skills import ensure_repo_skills_installed
 from mylab.storage import append_jsonl
+from mylab.storage.plan_layout import plan_paths
 from mylab.storage.runs import init_run_dirs, save_manifest
 from mylab.utils import (
     detect_git_branch,
@@ -105,6 +106,7 @@ def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str
 
 def commit_iteration_changes(run_dir: Path, manifest: RunManifest, plan_id: str) -> Path:
     paths = init_run_dirs(run_dir)
+    scoped_paths = plan_paths(run_dir, plan_id, ensure=True)
     git = GitManager(Path(manifest.repo_path), paths.logs / "git-lifecycle.jsonl")
     branch = manifest.work_branch or git.current_branch()
     if git.current_branch() != branch:
@@ -120,7 +122,7 @@ def commit_iteration_changes(run_dir: Path, manifest: RunManifest, plan_id: str)
     manifest.work_branch = branch
     manifest.latest_work_commit = head_commit
     save_manifest(paths, manifest)
-    report_path = paths.results / f"{plan_id}.git.md"
+    report_path = scoped_paths.git_report
     report_path.write_text(
         "\n".join(
             [

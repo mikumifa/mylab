@@ -30,6 +30,7 @@ from mylab.services.telegram_bot import (
     load_telegram_settings,
 )
 from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
+from mylab.storage.plan_layout import plan_paths, relative_to_run
 from mylab.utils import utc_now
 
 
@@ -195,6 +196,7 @@ class SerialFlowRunner:
             return
         if task.kind == "commit_changes":
             plan_id = str(task.payload["plan_id"])
+            scoped_paths = plan_paths(self.run_dir, plan_id)
             self._append_task(
                 queue,
                 "write_summary",
@@ -203,12 +205,12 @@ class SerialFlowRunner:
                     "status": "completed",
                     "outcome": "Execution finished. Replace this placeholder with an evidence-based summary.",
                     "evidence": [
-                        f"logs/{plan_id}.codex.events.jsonl",
-                        f"results/{plan_id}.codex.last.md",
+                        relative_to_run(scoped_paths.codex_events, self.run_dir),
+                        relative_to_run(scoped_paths.codex_last, self.run_dir),
                     ],
                     "artifacts": [
-                        f"commands/{plan_id}.executor.sh",
-                        f"plans/{plan_id}.md",
+                        relative_to_run(scoped_paths.command, self.run_dir),
+                        relative_to_run(scoped_paths.plan, self.run_dir),
                     ],
                     "next_iteration": [
                         "Inspect the result report and replace this placeholder summary."

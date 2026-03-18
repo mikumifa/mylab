@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from mylab.config import ROOT
 from mylab.logging import logger
 
 
@@ -37,7 +38,7 @@ Read [references/complete-example.md](references/complete-example.md) for a full
 
 _JOB_MONITOR_REFERENCE = """# Complete Example
 
-Use this pattern when a prepared executor script already exists at `commands/plan-001.executor.sh` and you need to run a long training job under mylab monitoring.
+Use this pattern when a prepared executor script already exists at `plans/plan-001/executor.sh` and you need to run a long training job under mylab monitoring.
 
 ## Preconditions
 
@@ -52,7 +53,7 @@ mylab tool start-job \\
   --run-dir /abs/path/to/.mylab_runs/20260316_120000_example \\
   --plan-id plan-001 \\
   --name train \\
-  --command 'bash /abs/path/to/.mylab_runs/20260316_120000_example/commands/plan-001.executor.sh train'
+  --command 'bash /abs/path/to/.mylab_runs/20260316_120000_example/plans/plan-001/executor.sh train'
 ```
 
 Expected stdout is a single JSON object like:
@@ -110,6 +111,9 @@ cmd_start_job(Namespace(...))
 That path exists only as a compatibility fallback. The normal interface is the CLI.
 """
 
+_STRUCTURE_TUNING_SKILL = (ROOT / ".codex" / "skills" / "mylab-structure-tuning" / "SKILL.md").read_text(encoding="utf-8")
+_PARAMETER_TUNING_SKILL = (ROOT / ".codex" / "skills" / "mylab-parameter-tuning" / "SKILL.md").read_text(encoding="utf-8")
+
 
 def _write_if_missing(path: Path, content: str) -> bool:
     if path.exists():
@@ -130,6 +134,8 @@ def ensure_repo_skills_installed(repo_path: Path) -> list[str]:
         / "mylab-job-monitor"
         / "references"
         / "complete-example.md": _JOB_MONITOR_REFERENCE,
+        repo_path / ".codex" / "skills" / "mylab-structure-tuning" / "SKILL.md": _STRUCTURE_TUNING_SKILL,
+        repo_path / ".codex" / "skills" / "mylab-parameter-tuning" / "SKILL.md": _PARAMETER_TUNING_SKILL,
     }
     for path, content in files.items():
         if _write_if_missing(path, content):

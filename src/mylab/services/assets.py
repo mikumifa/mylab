@@ -5,6 +5,7 @@ from pathlib import Path
 
 from mylab.logging import logger
 from mylab.storage import append_jsonl, read_text, write_text
+from mylab.storage.plan_layout import plan_paths, relative_to_run
 from mylab.storage.runs import load_manifest
 from mylab.utils import slugify, utc_now
 
@@ -16,15 +17,21 @@ def legacy_repo_experience_path(run_dir: Path) -> Path:
 
 
 def repo_asset_path(run_dir: Path) -> Path:
-    manifest = load_manifest(run_dir)
-    repo_key = slugify(manifest.repo_path)
-    return run_dir.parent / "assets" / f"{repo_key}.md"
+    return run_dir / "assets" / "repo.md"
 
 
 def load_repo_asset(run_dir: Path) -> str:
     asset_path = repo_asset_path(run_dir)
     if asset_path.exists():
         return read_text(asset_path).strip()
+    manifest = load_manifest(run_dir)
+    repo_key = slugify(manifest.repo_path)
+    legacy_run_asset = run_dir / "assets" / f"{repo_key}.md"
+    if legacy_run_asset.exists():
+        return read_text(legacy_run_asset).strip()
+    legacy_shared_asset = run_dir.parent / "assets" / f"{repo_key}.md"
+    if legacy_shared_asset.exists():
+        return read_text(legacy_shared_asset).strip()
     legacy_path = legacy_repo_experience_path(run_dir)
     if legacy_path.exists():
         return read_text(legacy_path).strip()
@@ -176,19 +183,20 @@ def _write_plan_index(run_dir: Path, records: list[dict[str, str]]) -> None:
         f"- run_id: {run_dir.name}",
         f"- updated_at: {utc_now()}",
         "",
-        "| plan_id | parent | status | short_summary | artifacts |",
-        "| --- | --- | --- | --- | --- |",
+        "| plan_id | kind | parent | status | plan_path | summary_path | short_summary |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for record in records:
         short_summary = " ".join(record["short_summary"].split()).replace("|", "/")
-        artifacts = " ".join(record["artifacts"].split()).replace("|", "/")
         markdown_lines.append(
-            "| {plan_id} | {parent_plan_id} | {status} | {short_summary} | {artifacts} |".format(
+            "| {plan_id} | {plan_kind} | {parent_plan_id} | {status} | {plan_path} | {summary_path} | {short_summary} |".format(
                 plan_id=record["plan_id"],
+                plan_kind=record.get("plan_kind", "unknown"),
                 parent_plan_id=record["parent_plan_id"] or "-",
                 status=record["status"],
+                plan_path=record.get("plan_path", "-").replace("|", "/"),
+                summary_path=record.get("summary_path", "-").replace("|", "/"),
                 short_summary=short_summary,
-                artifacts=artifacts,
             )
         )
     write_text(markdown_path, "\n".join(markdown_lines))
@@ -199,6 +207,7 @@ def upsert_plan_index_record(
     run_dir: Path,
     plan_id: str,
     parent_plan_id: str | None,
+    plan_kind: str,
     status: str,
     short_summary: str,
     artifacts: list[str],
@@ -206,11 +215,15 @@ def upsert_plan_index_record(
     records = _load_plan_index_records(run_dir)
     by_plan = {record["plan_id"]: record for record in records}
     previous = by_plan.get(plan_id, {})
+    paths = plan_paths(run_dir, plan_id)
     by_plan[plan_id] = {
         "plan_id": plan_id,
         "parent_plan_id": parent_plan_id or previous.get("parent_plan_id", ""),
+        "plan_kind": plan_kind or previous.get("plan_kind", "unknown"),
         "status": status,
         "short_summary": " ".join(short_summary.split()),
+        "plan_path": relative_to_run(paths.plan, run_dir),
+        "summary_path": relative_to_run(paths.summary, run_dir),
         "artifacts": ", ".join(" ".join(item.split()) for item in artifacts),
         "updated_at": utc_now(),
     }

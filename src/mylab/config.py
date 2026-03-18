@@ -20,6 +20,7 @@ PLAN_HEADINGS = [
     "# Investigation Questions",
     "# Execution Plan",
     "# Deliverables",
+    "# Referenced Files",
     "# Result Collection Rules",
 ]
 
@@ -33,6 +34,7 @@ SUMMARY_HEADINGS = [
 
 RUN_SUBDIRS = (
     "inputs",
+    "assets",
     "plans",
     "prompts",
     "logs",

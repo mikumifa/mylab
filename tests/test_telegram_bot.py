@@ -19,6 +19,7 @@ from mylab.services.telegram_bot import (
     load_telegram_settings,
     push_summary_to_telegram,
 )
+from mylab.storage.plan_layout import plan_paths
 
 
 class FakeTelegramBot(TelegramBotClient):
@@ -275,10 +276,9 @@ class TelegramBotTest(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
-        summary_path = self.root / "run" / "summaries" / "plan-001.summary.md"
-        result_path = self.root / "run" / "results" / "plan-001.result.md"
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        result_path.parent.mkdir(parents=True, exist_ok=True)
+        scoped_paths = plan_paths(self.root / "run", "plan-001", ensure=True)
+        summary_path = scoped_paths.summary
+        result_path = scoped_paths.result
         summary_content = "\n".join(
             [
                 "# Summary Metadata",
@@ -292,7 +292,7 @@ class TelegramBotTest(unittest.TestCase):
                 "1. results/metrics.json",
                 "",
                 "# Artifacts",
-                "1. summaries/plan-001.summary.md",
+                "1. plans/plan-001/summary.md",
                 "",
                 "# Next Iteration",
                 "1. Compare against the lighter baseline.",
@@ -344,8 +344,8 @@ class TelegramBotTest(unittest.TestCase):
         self.assertEqual(
             fake_bot.sent_documents,
             [
-                (42, "plan-001.summary.md", "plan-001 summary"),
-                (42, "plan-001.result.md", "plan-001 result"),
+                (42, "summary.md", "plan-001 summary"),
+                (42, "result.md", "plan-001 result"),
             ],
         )
 

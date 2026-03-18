@@ -8,6 +8,7 @@ from mylab.services.formatting import format_for_manifest
 from mylab.services.plans import create_initial_plan, create_iterated_plan
 from mylab.services.reports import write_summary
 from mylab.storage import read_json, write_json
+from mylab.storage.plan_layout import plan_paths, relative_to_run
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
@@ -166,6 +167,7 @@ def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> Non
         return
     if task.kind == "run_executor":
         plan_id = str(task.payload["plan_id"])
+        scoped_paths = plan_paths(run_dir, plan_id)
         queue.tasks.append(
             TaskRecord(
                 task_id=next_task_id(queue),
@@ -177,12 +179,12 @@ def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> Non
                     "status": "completed",
                     "outcome": "Execution finished. Replace this placeholder with an evidence-based summary.",
                     "evidence": [
-                        f"logs/{plan_id}.codex.events.jsonl",
-                        f"results/{plan_id}.codex.last.md",
+                        relative_to_run(scoped_paths.codex_events, run_dir),
+                        relative_to_run(scoped_paths.codex_last, run_dir),
                     ],
                     "artifacts": [
-                        f"commands/{plan_id}.executor.sh",
-                        f"plans/{plan_id}.md",
+                        relative_to_run(scoped_paths.command, run_dir),
+                        relative_to_run(scoped_paths.plan, run_dir),
                     ],
                     "next_iteration": [
                         "Inspect the result report and replace this placeholder summary."

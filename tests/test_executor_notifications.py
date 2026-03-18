@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import mylab.services.executor as executor_module
 from mylab.domain import RunManifest
 from mylab.storage import write_text
+from mylab.storage.plan_layout import plan_paths
 from mylab.storage.runs import init_run_dirs, save_manifest
 
 
@@ -38,7 +39,9 @@ class ExecutorNotificationTest(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory(prefix="mylab-executor-notify-")
         self.root = Path(self.temp_dir.name)
         self.paths = init_run_dirs(self.root / "run")
-        write_text(self.paths.prompts / "plan-001.executor.prompt.md", "prompt")
+        write_text(
+            plan_paths(self.paths.root, "plan-001", ensure=True).executor_prompt, "prompt"
+        )
         save_manifest(
             self.paths,
             RunManifest(
@@ -74,7 +77,7 @@ class ExecutorNotificationTest(unittest.TestCase):
             executor_module.NotificationClient = original_notifier
             executor_module.load_notification_settings = original_load_settings
 
-        self.assertEqual(output, self.paths.results / "plan-001.codex.last.md")
+        self.assertEqual(output, plan_paths(self.paths.root, "plan-001").codex_last)
         self.assertEqual(
             fake_notifier.agent_messages,
             [

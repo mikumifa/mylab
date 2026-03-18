@@ -20,6 +20,7 @@ from mylab.config import (
 )
 from mylab.logging import logger
 from mylab.storage import append_jsonl, ensure_dir, read_json, write_json, write_text
+from mylab.storage.plan_layout import plan_paths
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
@@ -855,8 +856,9 @@ def push_summary_to_telegram(
         return False
     client = TelegramBotClient(settings)
     message = _summary_message(summary_content, run_id=run_dir.name, plan_id=plan_id)
-    result_path = run_dir / "results" / f"{plan_id}.result.md"
-    codex_last_path = run_dir / "results" / f"{plan_id}.codex.last.md"
+    paths = plan_paths(run_dir, plan_id)
+    result_path = paths.result
+    codex_last_path = paths.codex_last
     sent = False
     for chat_id in chat_ids:
         client.send_message(chat_id, message)

@@ -9,6 +9,7 @@ from typing import Any
 class RunPaths:
     root: Path
     inputs: Path
+    assets: Path
     plans: Path
     prompts: Path
     logs: Path

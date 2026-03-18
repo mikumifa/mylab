@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mylab.domain import RunManifest
 from mylab.services.reports import write_summary
+from mylab.storage.plan_layout import plan_paths
 from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
 
 
@@ -36,7 +37,8 @@ class ReportsTest(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_write_summary_uses_structured_result_report(self) -> None:
-        (self.paths.results / "plan-001.result.md").write_text(
+        scoped_paths = plan_paths(self.paths.root, "plan-001", ensure=True)
+        scoped_paths.result.write_text(
             "\n".join(
                 [
                     "# Outcome",
@@ -47,8 +49,8 @@ class ReportsTest(unittest.TestCase):
                     "2. logs/train.stdout.log",
                     "",
                     "# Artifacts",
-                    "1. commands/plan-001.executor.sh",
-                    "2. results/plan-001.result.md",
+                    "1. plans/plan-001/executor.sh",
+                    "2. plans/plan-001/result.md",
                     "",
                     "# Next Iteration",
                     "1. Compare against the lighter baseline.",
@@ -63,8 +65,8 @@ class ReportsTest(unittest.TestCase):
             "plan-001",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"logs/plan-001.codex.events.jsonl"],
-            [f"commands/plan-001.executor.sh"],
+            [f"plans/plan-001/codex.events.jsonl"],
+            [f"plans/plan-001/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 
@@ -75,7 +77,8 @@ class ReportsTest(unittest.TestCase):
         self.assertNotIn("Replace this placeholder", content)
 
     def test_write_summary_falls_back_to_codex_last_message(self) -> None:
-        (self.paths.results / "plan-002.codex.last.md").write_text(
+        scoped_paths = plan_paths(self.paths.root, "plan-002", ensure=True)
+        scoped_paths.codex_last.write_text(
             "Implemented configurable output root and preserved stdout under the run directory.\n",
             encoding="utf-8",
         )
@@ -85,8 +88,8 @@ class ReportsTest(unittest.TestCase):
             "plan-002",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"logs/plan-002.codex.events.jsonl"],
-            [f"commands/plan-002.executor.sh"],
+            [f"plans/plan-002/codex.events.jsonl"],
+            [f"plans/plan-002/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 
@@ -95,12 +98,13 @@ class ReportsTest(unittest.TestCase):
             "Implemented configurable output root and preserved stdout under the run directory.",
             content,
         )
-        self.assertIn("results/plan-002.codex.last.md", content)
+        self.assertIn("plans/plan-002/codex.last.md", content)
         self.assertIn("Finish the documentation by updating result.md, summary.md, and the shared asset", content)
         self.assertNotIn("Replace this placeholder", content)
 
     def test_write_summary_generates_structured_next_iteration_from_result_report(self) -> None:
-        (self.paths.results / "plan-005.result.md").write_text(
+        scoped_paths = plan_paths(self.paths.root, "plan-005", ensure=True)
+        scoped_paths.result.write_text(
             "\n".join(
                 [
                     "# Outcome",
@@ -112,7 +116,7 @@ class ReportsTest(unittest.TestCase):
                     "",
                     "# Artifacts",
                     "1. src/example_lab/train.py",
-                    "2. summaries/plan-005.summary.md",
+                    "2. plans/plan-005/summary.md",
                 ]
             )
             + "\n",
@@ -124,8 +128,8 @@ class ReportsTest(unittest.TestCase):
             "plan-005",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"logs/plan-005.codex.events.jsonl"],
-            [f"commands/plan-005.executor.sh"],
+            [f"plans/plan-005/codex.events.jsonl"],
+            [f"plans/plan-005/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 
@@ -140,7 +144,7 @@ class ReportsTest(unittest.TestCase):
         manifest.work_branch = "mylab/run-001/plan-001"
         manifest.latest_work_commit = "abc1234"
         save_manifest(self.paths, manifest)
-        (self.paths.results / "plan-003.git.md").write_text(
+        plan_paths(self.paths.root, "plan-003", ensure=True).git_report.write_text(
             "# Git Delivery\n- work_branch: mylab/run-001/plan-001\n- head_commit: abc1234\n",
             encoding="utf-8",
         )
@@ -150,8 +154,8 @@ class ReportsTest(unittest.TestCase):
             "plan-003",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"logs/plan-003.codex.events.jsonl"],
-            [f"commands/plan-003.executor.sh"],
+            [f"plans/plan-003/codex.events.jsonl"],
+            [f"plans/plan-003/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 
@@ -159,7 +163,7 @@ class ReportsTest(unittest.TestCase):
         self.assertIn("- goal_language: zh", content)
         self.assertIn("- work_branch: mylab/run-001/plan-001", content)
         self.assertIn("- work_commit: abc1234", content)
-        self.assertIn("results/plan-003.git.md", content)
+        self.assertIn("plans/plan-003/git.md", content)
         self.assertIn("git:mylab/run-001/plan-001@abc1234", content)
 
     def test_write_summary_uses_goal_language_for_missing_report(self) -> None:
@@ -175,8 +179,8 @@ class ReportsTest(unittest.TestCase):
             "plan-004",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"logs/plan-004.codex.events.jsonl"],
-            [f"commands/plan-004.executor.sh"],
+            [f"plans/plan-004/codex.events.jsonl"],
+            [f"plans/plan-004/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 

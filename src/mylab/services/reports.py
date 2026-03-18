@@ -7,6 +7,7 @@ from mylab.config import SUMMARY_HEADINGS
 from mylab.logging import logger
 from mylab.services.assets import update_repo_asset, upsert_plan_index_record
 from mylab.storage import append_jsonl, read_text, write_text
+from mylab.storage.plan_layout import plan_paths, relative_to_run
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
@@ -164,14 +165,15 @@ def summarize_execution_outputs(
         empty_report = "Execution finished, but the result report is empty."
         write_report = "Open the executor output and write a structured result report first, then derive the next code, experiment, and documentation steps from it."
         rerun_report = "Re-run the executor or inspect why the result report was empty, then spell out the next code, experiment, and documentation steps."
-    result_path = run_dir / "results" / f"{plan_id}.result.md"
-    codex_last_path = run_dir / "results" / f"{plan_id}.codex.last.md"
+    paths = plan_paths(run_dir, plan_id)
+    result_path = paths.result
+    codex_last_path = paths.codex_last
     source_path = result_path if result_path.exists() else codex_last_path
     if not source_path.exists():
         return (
             missing_report,
-            [f"logs/{plan_id}.codex.events.jsonl"],
-            [f"commands/{plan_id}.executor.sh"],
+            [relative_to_run(paths.codex_events, run_dir)],
+            [relative_to_run(paths.command, run_dir)],
             [write_report],
         )
 
@@ -180,10 +182,10 @@ def summarize_execution_outputs(
         return (
             f"{empty_report.rstrip('.')} ({source_path.name}).",
             [
-                f"logs/{plan_id}.codex.events.jsonl",
-                str(source_path.relative_to(run_dir)),
+                relative_to_run(paths.codex_events, run_dir),
+                relative_to_run(source_path, run_dir),
             ],
-            [f"commands/{plan_id}.executor.sh"],
+            [relative_to_run(paths.command, run_dir)],
             [rerun_report],
         )
 
@@ -200,15 +202,15 @@ def summarize_execution_outputs(
     evidence = _extract_list_items(_extract_markdown_section(content, "# Evidence"))
     if not evidence:
         evidence = [
-            str(source_path.relative_to(run_dir)),
-            f"logs/{plan_id}.codex.events.jsonl",
+            relative_to_run(source_path, run_dir),
+            relative_to_run(paths.codex_events, run_dir),
         ]
 
     artifacts = _extract_list_items(_extract_markdown_section(content, "# Artifacts"))
     if not artifacts:
         artifacts = [
-            f"commands/{plan_id}.executor.sh",
-            str(source_path.relative_to(run_dir)),
+            relative_to_run(paths.command, run_dir),
+            relative_to_run(source_path, run_dir),
         ]
 
     next_iteration = _extract_list_items(
@@ -254,9 +256,10 @@ def write_summary(
             goal_language=manifest.goal_language,
             goal_text=goal_text,
         )
-    git_report_path = run_dir / "results" / f"{plan_id}.git.md"
+    paths = plan_paths(run_dir, plan_id, ensure=True)
+    git_report_path = paths.git_report
     if git_report_path.exists():
-        git_artifact = str(git_report_path.relative_to(run_dir))
+        git_artifact = relative_to_run(git_report_path, run_dir)
         if git_artifact not in artifacts:
             artifacts = [*artifacts, git_artifact]
         git_evidence = (
@@ -281,7 +284,7 @@ def write_summary(
     errors = validate_summary_markdown(summary)
     if errors:
         raise ValueError("; ".join(errors))
-    summary_path = run_dir / "summaries" / f"{plan_id}.summary.md"
+    summary_path = paths.summary
     write_text(summary_path, summary)
     append_jsonl(
         run_dir / "logs" / "iteration-agent.jsonl",
@@ -296,9 +299,10 @@ def write_summary(
         run_dir=run_dir,
         plan_id=plan_id,
         parent_plan_id=None,
+        plan_kind="",
         status=status,
         short_summary=outcome,
-        artifacts=[str(summary_path), *artifacts],
+        artifacts=[relative_to_run(summary_path, run_dir), *artifacts],
     )
     if should_update_repo_asset(outcome, next_iteration):
         update_repo_asset(

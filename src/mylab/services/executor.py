@@ -13,6 +13,7 @@ from mylab.services.telegram_bot import (
     load_telegram_settings,
 )
 from mylab.storage import append_jsonl, write_text
+from mylab.storage.plan_layout import plan_paths, relative_to_run
 from mylab.storage.runs import load_manifest
 from mylab.utils import describe_language, utc_now
 
@@ -26,11 +27,12 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
     feedback_context = load_feedback_context(
         load_telegram_settings().feedback_context_limit
     )
-    plan_path = run_dir / "plans" / f"{plan_id}.md"
-    result_path = run_dir / "results" / f"{plan_id}.result.md"
-    summary_path = run_dir / "summaries" / f"{plan_id}.summary.md"
-    log_path = run_dir / "logs" / f"{plan_id}.executor.jsonl"
-    command_path = run_dir / "commands" / f"{plan_id}.executor.sh"
+    paths = plan_paths(run_dir, plan_id)
+    plan_path = paths.plan
+    result_path = paths.result
+    summary_path = paths.summary
+    log_path = paths.executor_log
+    command_path = paths.command
     return "\n".join(
         [
             f"You are the iteration agent executing {plan_id}.",
@@ -43,6 +45,8 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             f"Structured log path: {log_path}",
             f"Plan index path: {run_dir / 'plans' / 'index.md'}",
             f"Repository shared asset path: {repo_asset_path(run_dir)}",
+            f"Plan references directory: {paths.references}",
+            f"Plan skill reference: {paths.references / 'plan-skill.md'}",
             f"Job monitor metadata directory: {run_dir / 'jobs'}",
             "Rules:",
             "1. Do not hardcode experiment output paths outside the run directory.",
@@ -58,6 +62,7 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             "11. Do not silently change the training budget defined by the plan, repository, or user input.",
             "12. Early stopping, reduced search, or proxy runs are allowed only when justified by repo logic or explicit plan rationale, and the result report must state both the authoritative budget source and the actual stop point.",
             f"13. Write the result report and concise user-facing summary in {describe_language(manifest.goal_language)} to match the original goal language.",
+            "14. Follow the workflow contract captured in references/plan-skill.md so structure-tuning plans and parameter-tuning plans keep different execution styles.",
             "",
             "Repository shared asset:",
             inherited_asset or "(none yet)",
@@ -85,12 +90,13 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
 
 def prepare_executor(run_dir: Path, plan_id: str, model: str | None) -> Path:
     manifest = load_manifest(run_dir)
-    plan_path = run_dir / "plans" / f"{plan_id}.md"
+    paths = plan_paths(run_dir, plan_id, ensure=True)
+    plan_path = paths.plan
     if not plan_path.exists():
         raise FileNotFoundError(f"missing plan file: {plan_path}")
-    prompt_path = run_dir / "prompts" / f"{plan_id}.executor.prompt.md"
-    output_path = run_dir / "results" / f"{plan_id}.codex.last.md"
-    command_path = run_dir / "commands" / f"{plan_id}.executor.sh"
+    prompt_path = paths.executor_prompt
+    output_path = paths.codex_last
+    command_path = paths.command
     prompt = executor_prompt(run_dir, plan_id)
     write_text(prompt_path, prompt)
     spec = CodexExecSpec(
@@ -98,7 +104,7 @@ def prepare_executor(run_dir: Path, plan_id: str, model: str | None) -> Path:
         run_dir=run_dir,
         prompt_path=prompt_path,
         output_path=output_path,
-        event_path=run_dir / "logs" / f"{plan_id}.codex.events.jsonl",
+        event_path=paths.codex_events,
         model=model,
     )
     logger.info("Preparing Codex executor for {} in {}", plan_id, run_dir)
@@ -110,8 +116,8 @@ def prepare_executor(run_dir: Path, plan_id: str, model: str | None) -> Path:
             "level": "INFO",
             "event": "executor_prepared",
             "plan_id": plan_id,
-            "prompt": str(prompt_path),
-            "command": str(command_path),
+            "prompt": relative_to_run(prompt_path, run_dir),
+            "command": relative_to_run(command_path, run_dir),
         },
     )
     return command_path
@@ -122,9 +128,10 @@ def run_executor(
 ) -> Path:
     manifest = load_manifest(run_dir)
     notifier = NotificationClient(run_dir, load_notification_settings(run_dir))
-    prompt_path = run_dir / "prompts" / f"{plan_id}.executor.prompt.md"
-    output_path = run_dir / "results" / f"{plan_id}.codex.last.md"
-    event_path = run_dir / "logs" / f"{plan_id}.codex.events.jsonl"
+    paths = plan_paths(run_dir, plan_id, ensure=True)
+    prompt_path = paths.executor_prompt
+    output_path = paths.codex_last
+    event_path = paths.codex_events
     spec = CodexExecSpec(
         repo_path=Path(manifest.repo_path),
         run_dir=run_dir,
