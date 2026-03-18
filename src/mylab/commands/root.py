@@ -217,7 +217,7 @@ def resolve_flow_control(
     resolved_mode = mode or settings.mode
     if not resolved_mode and prompt_if_missing and sys.stdin.isatty():
         resolved_mode = prompt_for_flow_mode()
-    resolved_mode = resolved_mode or FLOW_MODE_LIMIT
+    resolved_mode = resolved_mode or FLOW_MODE_UNLIMIT
     resolved_limit = limit if limit is not None else settings.limit
     if resolved_mode == FLOW_MODE_LIMIT and resolved_limit is None:
         resolved_limit = 100

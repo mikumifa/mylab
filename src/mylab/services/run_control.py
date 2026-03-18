@@ -52,7 +52,7 @@ def prompt_for_flow_mode(
     input_fn=input,
     current_mode: str | None = None,
 ) -> str:
-    default_value = current_mode or FLOW_MODE_LIMIT
+    default_value = current_mode or FLOW_MODE_UNLIMIT
     prompt = f"Execution mode [1=limit, 2=step, 3=unlimit, default={default_value}]: "
     while True:
         value = input_fn(prompt).strip().lower()

@@ -1,6 +1,6 @@
-# mylab
+# MyLab
 
-mylab 是一个专为**科研实验**设计的基于Codex的Agent框架。
+MyLab 是一个专为**科研实验**设计的基于Codex的Agent框架。
 
 我们希望 AI 能够在一步步的试错中不断探索，从一次次的先前实验中学习到经验；同时，我们也能从 AI 的一次次试错中找到真正的重点，帮助 AI 完成任务。
 
@@ -9,10 +9,10 @@ mylab 是一个专为**科研实验**设计的基于Codex的Agent框架。
 
 我们把每一次的实验，变成一个**Trial**：
 
-- mylab 不只执行一次命令，而是围绕同一个目标持续实验、沉淀总结，再进入下一轮试错
+- MyLab 不只执行一次命令，而是围绕同一个目标持续实验、沉淀总结，再进入下一轮试错
 - 每一轮都会将关键信息沉淀为一个**Trial**，包括 trial 定义、总结、结果、执行脚本和结构化日志，能让经验一直留存下来
-- 会持续积累“实验怎么跑、哪些方法有效、哪些坑已经踩过”，让后续mylab能直接站在前一轮经验上继续探索
-- 人可以从这些稳定产物中快速看到 mylab 到底试了什么、为什么失败、下一个优化方向到哪里，选择最重要的Trial经验给 AI
+- 会持续积累“实验怎么跑、哪些方法有效、哪些坑已经踩过”，后续的MyLab会根据当前的目标，从所有历史 **Trial** 中“选择性地”提取最相关的经验
+- 人可以从这些 **Trial** 中快速看到 MyLab 到底试了什么、为什么失败、下一个优化方向到哪里，保留有价值的 **Trial** 作为基石，删除无用的 **Trial** 以剔除噪音，或者直接在 **Trial** 文件中写下你的点评
 
 
 
@@ -33,11 +33,11 @@ pip install -e .
 
 ```bash
 # 创建并启动一个新的 run
-mylab start --repo /path/to/repo --goal "reproduce table 1"
+mylab start --repo /path/to/repo --goal "reproduce table 1" --mode unlimit
 # 给 run 指定名字
-mylab start --repo /path/to/repo --goal ./goal.md --run run_xx
+mylab start --repo /path/to/repo --goal ./goal.md --run run_xx --mode unlimit
 # 恢复一个已有 run
-mylab start --run run_xx
+mylab start --run run_xx --mode unlimit
 ```
 
 ### Manage Trials

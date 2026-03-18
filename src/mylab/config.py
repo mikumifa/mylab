@@ -21,6 +21,7 @@ TRIAL_HEADINGS = [
     "# Investigation Questions",
     "# Execution Steps",
     "# Deliverables",
+    "# Human Review",
     "# Result Collection Rules",
 ]
 

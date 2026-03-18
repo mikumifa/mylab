@@ -353,6 +353,10 @@ Keep only the decisive execution outline here. Put detailed code-change logic an
 # Deliverables
 {chr(10).join(f"{index}. {item}" for index, item in enumerate(deliverables, start=1))}
 
+# Human Review
+- Status: Pending human comment.
+- Human Comment: Fill in concise feedback, objections, or approval notes here.
+
 # Result Collection Rules
 1. All intermediate artifacts must be written under the run directory only.
 2. Every code change must be tied to this trial ID in logs or commit notes.

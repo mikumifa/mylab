@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import mylab.flow.serial as serial_module
 from mylab.domain import QueueState, RunManifest, TaskRecord
+from mylab.commands.root import resolve_flow_control
 from mylab.flow.serial import SerialFlowRunner
 from mylab.orchestrator.queue import save_queue
 from mylab.services.run_control import (
@@ -17,6 +18,7 @@ from mylab.services.run_control import (
     FLOW_MODE_STEP,
     FLOW_MODE_UNLIMIT,
     load_run_control_settings,
+    prompt_for_flow_mode,
 )
 from mylab.services.telegram_bot import TelegramSettings
 from mylab.storage.runs import init_run_dirs, save_manifest
@@ -168,6 +170,30 @@ class FlowModeTest(unittest.TestCase):
 
         self.assertEqual(settings.mode, FLOW_MODE_STEP)
         self.assertEqual(settings.limit, 2)
+
+    def test_default_flow_control_uses_unlimit(self) -> None:
+        with patch("mylab.commands.root.load_run_control_settings") as mock_settings:
+            mock_settings.return_value = load_run_control_settings(self.root / "missing.toml")
+            mode, limit = resolve_flow_control(
+                mode=None,
+                limit=None,
+                prompt_if_missing=False,
+            )
+
+        self.assertEqual(mode, FLOW_MODE_UNLIMIT)
+        self.assertIsNone(limit)
+
+    def test_prompt_for_flow_mode_defaults_to_unlimit(self) -> None:
+        prompts: list[str] = []
+
+        def fake_input(prompt: str) -> str:
+            prompts.append(prompt)
+            return ""
+
+        mode = prompt_for_flow_mode(input_fn=fake_input)
+
+        self.assertEqual(mode, FLOW_MODE_UNLIMIT)
+        self.assertIn("default=unlimit", prompts[0])
 
     def test_step_mode_queues_next_iteration_after_feedback(self) -> None:
         save_manifest(

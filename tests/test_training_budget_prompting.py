@@ -65,6 +65,7 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
         self.assertNotIn("next_iteration_hook:", content)
         self.assertNotIn("# Referenced Files", content)
         self.assertIn("Put full design rationale in `references/design.md`", content)
+        self.assertIn("# Human Review", content)
 
     def test_executor_prompt_mentions_no_silent_undertraining(self) -> None:
         scoped_paths = trial_paths(self.paths.root, "trial-001", ensure=True)
@@ -115,6 +116,10 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
                     "",
                     "# Deliverables",
                     "1. Metrics.",
+                    "",
+                    "# Human Review",
+                    "- Status: Pending human comment.",
+                    "- Human Comment: Fill in concise feedback, objections, or approval notes here.",
                     "",
                     "# Result Collection Rules",
                     "1. Keep outputs under the run directory.",
