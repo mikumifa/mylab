@@ -1,5 +1,10 @@
 # MyLab
 
+![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)
+![Linux](https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black)
+![CLI](https://img.shields.io/badge/interface-CLI-2F855A?logo=gnubash&logoColor=white)
+![Codex](https://img.shields.io/badge/agent-Codex-111111)
+
 MyLab 是一个专为**科研实验**设计的基于Codex的Agent框架。
 
 我们希望 AI 能够在一步步的试错中不断探索，从一次次的先前实验中学习到经验；同时，我们也能从 AI 的一次次试错中找到真正的重点，帮助 AI 完成任务。
