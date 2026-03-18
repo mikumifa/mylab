@@ -16,7 +16,7 @@ from mylab.services.git_lifecycle import (
     restore_original_branch,
 )
 from mylab.services.notifications import NotificationClient, load_notification_settings
-from mylab.services.plans import create_initial_plan, create_iterated_plan
+from mylab.services.trials import create_initial_trial, create_iterated_trial
 from mylab.services.reports import write_summary
 from mylab.services.run_control import (
     FLOW_MODE_LIMIT,
@@ -30,7 +30,7 @@ from mylab.services.telegram_bot import (
     load_telegram_settings,
 )
 from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
-from mylab.storage.plan_layout import plan_paths, relative_to_run
+from mylab.storage.trial_layout import trial_paths, relative_to_run
 from mylab.utils import utc_now
 
 
@@ -60,8 +60,8 @@ class SerialFlowRunner:
     def _task_label(self, task: TaskRecord) -> str:
         labels = {
             "format_repo": "repo audit",
-            "create_plan": "initial plan",
-            "iterate_plan": "plan iteration",
+            "create_plan": "initial trial",
+            "iterate_plan": "trial iteration",
             "prepare_branch": "git branch setup",
             "prepare_executor": "executor preparation",
             "run_executor": "codex execution",
@@ -73,10 +73,10 @@ class SerialFlowRunner:
 
     def _task_context(self, task: TaskRecord) -> str:
         parts: list[str] = []
-        plan_id = task.payload.get("plan_id")
-        if plan_id:
-            parts.append(f"plan={plan_id}")
-        parent_plan = task.payload.get("parent_plan_id")
+        trial_id = task.payload.get("trial_id")
+        if trial_id:
+            parts.append(f"trial={trial_id}")
+        parent_plan = task.payload.get("parent_trial_id")
         if parent_plan:
             parts.append(f"parent={parent_plan}")
         model = self._payload_model(task)
@@ -112,11 +112,11 @@ class SerialFlowRunner:
         done = sum(1 for task in queue.tasks if task.status == "done")
         failed = sum(1 for task in queue.tasks if task.status == "failed")
         logger.info(
-            "Run overview | run={} repo={} source_branch={} latest_plan={} queued(pending={}, done={}, failed={})",
+            "Run overview | run={} repo={} source_branch={} latest_trial={} queued(pending={}, done={}, failed={})",
             manifest.run_id,
             manifest.repo_path,
             manifest.source_branch,
-            manifest.latest_plan_id or "-",
+            manifest.latest_trial_id or "-",
             pending,
             done,
             failed,
@@ -124,7 +124,7 @@ class SerialFlowRunner:
         emit_progress(
             "[run]",
             f"{manifest.run_id}",
-            f"repo={manifest.repo_path} branch={manifest.source_branch} plan={manifest.latest_plan_id or '-'} pending={pending} done={done} failed={failed}",
+            f"repo={manifest.repo_path} branch={manifest.source_branch} trial={manifest.latest_trial_id or '-'} pending={pending} done={done} failed={failed}",
             color="blue",
         )
         self.notifier.notify(
@@ -132,7 +132,7 @@ class SerialFlowRunner:
             (
                 f"repo={manifest.repo_path}\n"
                 f"branch={manifest.source_branch}\n"
-                f"latest_plan={manifest.latest_plan_id or '-'}\n"
+                f"latest_trial={manifest.latest_trial_id or '-'}\n"
                 f"pending={pending} done={done} failed={failed}"
             ),
             notify_type="info",
@@ -164,7 +164,7 @@ class SerialFlowRunner:
                 queue,
                 "prepare_branch",
                 {
-                    "plan_id": manifest.latest_plan_id,
+                    "trial_id": manifest.latest_trial_id,
                     "model": self._payload_model(task),
                 },
             )
@@ -174,7 +174,7 @@ class SerialFlowRunner:
                 queue,
                 "prepare_executor",
                 {
-                    "plan_id": str(task.payload["plan_id"]),
+                    "trial_id": str(task.payload["trial_id"]),
                     "model": self._payload_model(task),
                 },
             )
@@ -184,24 +184,24 @@ class SerialFlowRunner:
                 queue,
                 "run_executor",
                 {
-                    "plan_id": str(task.payload["plan_id"]),
+                    "trial_id": str(task.payload["trial_id"]),
                     "model": self._payload_model(task),
                     "full_auto": False,
                 },
             )
             return
         if task.kind == "run_executor":
-            plan_id = str(task.payload["plan_id"])
-            self._append_task(queue, "commit_changes", {"plan_id": plan_id})
+            trial_id = str(task.payload["trial_id"])
+            self._append_task(queue, "commit_changes", {"trial_id": trial_id})
             return
         if task.kind == "commit_changes":
-            plan_id = str(task.payload["plan_id"])
-            scoped_paths = plan_paths(self.run_dir, plan_id)
+            trial_id = str(task.payload["trial_id"])
+            scoped_paths = trial_paths(self.run_dir, trial_id)
             self._append_task(
                 queue,
                 "write_summary",
                 {
-                    "plan_id": plan_id,
+                    "trial_id": trial_id,
                     "status": "completed",
                     "outcome": "Execution finished. Replace this placeholder with an evidence-based summary.",
                     "evidence": [
@@ -210,7 +210,7 @@ class SerialFlowRunner:
                     ],
                     "artifacts": [
                         relative_to_run(scoped_paths.command, self.run_dir),
-                        relative_to_run(scoped_paths.plan, self.run_dir),
+                        relative_to_run(scoped_paths.trial, self.run_dir),
                     ],
                     "next_iteration": [
                         "Inspect the result report and replace this placeholder summary."
@@ -224,25 +224,25 @@ class SerialFlowRunner:
         if task.kind == "format_repo":
             return str(format_for_manifest(self.run_dir))
         if task.kind == "create_plan":
-            return str(create_initial_plan(self.paths, manifest))
+            return str(create_initial_trial(self.paths, manifest))
         if task.kind == "iterate_plan":
             return str(
-                create_iterated_plan(
+                create_iterated_trial(
                     self.paths,
                     manifest,
-                    parent_plan_id=str(task.payload["parent_plan_id"]),
+                    parent_trial_id=str(task.payload["parent_trial_id"]),
                     feedback=str(task.payload["feedback"]),
                 )
             )
         if task.kind == "prepare_branch":
             return ensure_run_branch(
-                self.run_dir, manifest, str(task.payload["plan_id"])
+                self.run_dir, manifest, str(task.payload["trial_id"])
             )
         if task.kind == "prepare_executor":
             return str(
                 prepare_executor(
                     self.run_dir,
-                    str(task.payload["plan_id"]),
+                    str(task.payload["trial_id"]),
                     model=self._payload_model(task),
                 )
             )
@@ -252,7 +252,7 @@ class SerialFlowRunner:
             return str(
                 run_executor(
                     self.run_dir,
-                    str(task.payload["plan_id"]),
+                    str(task.payload["trial_id"]),
                     model=self._payload_model(task),
                     full_auto=bool(task.payload.get("full_auto", False)),
                 )
@@ -260,14 +260,14 @@ class SerialFlowRunner:
         if task.kind == "commit_changes":
             return str(
                 commit_iteration_changes(
-                    self.run_dir, manifest, str(task.payload["plan_id"])
+                    self.run_dir, manifest, str(task.payload["trial_id"])
                 )
             )
         if task.kind == "write_summary":
             return str(
                 write_summary(
                     self.run_dir,
-                    plan_id=str(task.payload["plan_id"]),
+                    trial_id=str(task.payload["trial_id"]),
                     status=str(task.payload.get("status", "unknown")),
                     outcome=str(task.payload.get("outcome", "Summary placeholder.")),
                     evidence=[str(item) for item in task.payload.get("evidence", [])],
@@ -295,13 +295,13 @@ class SerialFlowRunner:
         return 1
 
     def _enqueue_iteration_request(
-        self, queue: QueueState, parent_plan_id: str, feedback: str
+        self, queue: QueueState, parent_trial_id: str, feedback: str
     ) -> None:
         self._append_task(
             queue,
             "iterate_plan",
             {
-                "parent_plan_id": parent_plan_id,
+                "parent_trial_id": parent_trial_id,
                 "feedback": feedback,
                 "model": None,
             },
@@ -309,7 +309,7 @@ class SerialFlowRunner:
 
     def _auto_feedback(self) -> str:
         return (
-            "Continue to the next full iteration based on the latest plan, summary, "
+            "Continue to the next full iteration based on the latest trial, summary, "
             "result report, repository shared asset, and preserved execution evidence."
         )
 
@@ -393,7 +393,7 @@ class SerialFlowRunner:
         if self._next_pending(queue) is not None:
             return True
         manifest = load_manifest(self.run_dir)
-        if not manifest.latest_plan_id:
+        if not manifest.latest_trial_id:
             return True
         settings = load_telegram_settings()
         if settings.enabled:
@@ -404,11 +404,11 @@ class SerialFlowRunner:
                 manifest.feedback_cursor = cursor
                 save_manifest(self.paths, manifest)
                 self._enqueue_iteration_request(
-                    queue, manifest.latest_plan_id, feedback
+                    queue, manifest.latest_trial_id, feedback
                 )
             else:
                 self._enqueue_iteration_request(
-                    queue, manifest.latest_plan_id, self._auto_feedback()
+                    queue, manifest.latest_trial_id, self._auto_feedback()
                 )
             return True
         if self.mode == FLOW_MODE_STEP:
@@ -418,17 +418,17 @@ class SerialFlowRunner:
                     manifest.feedback_cursor = cursor
                     save_manifest(self.paths, manifest)
                     self._enqueue_iteration_request(
-                        queue, manifest.latest_plan_id, feedback
+                        queue, manifest.latest_trial_id, feedback
                     )
                 else:
                     self._enqueue_iteration_request(
-                        queue, manifest.latest_plan_id, self._auto_feedback()
+                        queue, manifest.latest_trial_id, self._auto_feedback()
                     )
                 return True
             feedback = self._wait_for_step_feedback(completed_iterations)
             if not feedback:
                 return False
-            self._enqueue_iteration_request(queue, manifest.latest_plan_id, feedback)
+            self._enqueue_iteration_request(queue, manifest.latest_trial_id, feedback)
             return True
         return True
 

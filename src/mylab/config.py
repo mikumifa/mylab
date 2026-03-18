@@ -15,11 +15,11 @@ TELEGRAM_INBOX_DIR = TELEGRAM_DIR / "inbox"
 TELEGRAM_INBOX_FILE = TELEGRAM_INBOX_DIR / "messages.jsonl"
 TELEGRAM_FILE_DIR = TELEGRAM_INBOX_DIR / "files"
 
-PLAN_HEADINGS = [
-    "# Plan Metadata",
+TRIAL_HEADINGS = [
+    "# Trial Metadata",
     "# Experiment Goal",
     "# Investigation Questions",
-    "# Execution Plan",
+    "# Execution Steps",
     "# Deliverables",
     "# Result Collection Rules",
 ]
@@ -35,7 +35,7 @@ SUMMARY_HEADINGS = [
 RUN_SUBDIRS = (
     "inputs",
     "assets",
-    "plans",
+    "trials",
     "logs",
     "commands",
     "manifests",

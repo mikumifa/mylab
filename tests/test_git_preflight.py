@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mylab.services.git_lifecycle import commit_iteration_changes, ensure_run_branch
-from mylab.services.plans import bootstrap_run
+from mylab.services.trials import bootstrap_run
 from mylab.storage.runs import init_run_dirs, load_manifest, planned_run_dirs
 
 
@@ -105,7 +105,7 @@ class GitPreflightTest(unittest.TestCase):
             / "skills"
             / "mylab-structure-tuning"
             / "templates"
-            / "plan.template.md"
+            / "trial.template.md"
         )
         parameter_skill_path = (
             self.repo / ".codex" / "skills" / "mylab-parameter-tuning" / "SKILL.md"
@@ -116,7 +116,7 @@ class GitPreflightTest(unittest.TestCase):
             / "skills"
             / "mylab-parameter-tuning"
             / "templates"
-            / "plan.template.md"
+            / "trial.template.md"
         )
         reference_path = (
             self.repo
@@ -157,19 +157,19 @@ class GitPreflightTest(unittest.TestCase):
             paths=paths,
             source_branch="main",
         )
-        ensure_run_branch(paths.root, manifest, "plan-001")
+        ensure_run_branch(paths.root, manifest, "trial-001")
         (self.repo / "experiment.txt").write_text("iteration 1\n", encoding="utf-8")
 
-        report_path = commit_iteration_changes(paths.root, manifest, "plan-001")
+        report_path = commit_iteration_changes(paths.root, manifest, "trial-001")
 
         commit_subject = run_git(self.repo, "log", "-1", "--pretty=%s").stdout.strip()
         saved_manifest = load_manifest(paths.root)
-        self.assertEqual(commit_subject, "mylab: deliver plan-001")
-        self.assertEqual(saved_manifest.work_branch, "mylab/run-005/plan-001")
+        self.assertEqual(commit_subject, "mylab: deliver trial-001")
+        self.assertEqual(saved_manifest.work_branch, "mylab/run-005/trial-001")
         self.assertTrue(saved_manifest.latest_work_commit)
         self.assertTrue(report_path.exists())
         report = report_path.read_text(encoding="utf-8")
-        self.assertIn("- work_branch: mylab/run-005/plan-001", report)
+        self.assertIn("- work_branch: mylab/run-005/trial-001", report)
         self.assertIn("- committed_new_changes: yes", report)
 
     def test_existing_work_branch_is_reused_instead_of_reset(self) -> None:
@@ -185,17 +185,17 @@ class GitPreflightTest(unittest.TestCase):
             paths=paths,
             source_branch="main",
         )
-        ensure_run_branch(paths.root, manifest, "plan-001")
+        ensure_run_branch(paths.root, manifest, "trial-001")
         (self.repo / "kept.txt").write_text("keep me\n", encoding="utf-8")
-        commit_iteration_changes(paths.root, manifest, "plan-001")
+        commit_iteration_changes(paths.root, manifest, "trial-001")
         first_commit = load_manifest(paths.root).latest_work_commit
 
         run_git(self.repo, "checkout", "main")
         manifest = load_manifest(paths.root)
-        branch = ensure_run_branch(paths.root, manifest, "plan-002")
+        branch = ensure_run_branch(paths.root, manifest, "trial-002")
         current_head = run_git(self.repo, "rev-parse", "HEAD").stdout.strip()
 
-        self.assertEqual(branch, "mylab/run-006/plan-001")
+        self.assertEqual(branch, "mylab/run-006/trial-001")
         self.assertEqual(current_head, first_commit)
         self.assertTrue((self.repo / "kept.txt").exists())
 

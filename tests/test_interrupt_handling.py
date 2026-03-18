@@ -40,7 +40,7 @@ class InterruptHandlingTest(unittest.TestCase):
                 goal_file=str(self.paths.inputs / "goal.txt"),
                 runs_env_var="MYLAB_RUNS_DIR",
                 original_branch="main",
-                work_branch="mylab/run-001/plan-001",
+                work_branch="mylab/run-001/trial-001",
             ),
         )
 
@@ -57,7 +57,7 @@ class InterruptHandlingTest(unittest.TestCase):
                         kind="run_executor",
                         status="pending",
                         created_at="2026-03-17T00:00:00Z",
-                        payload={"plan_id": "plan-001"},
+                        payload={"trial_id": "trial-001"},
                     )
                 ]
             ),

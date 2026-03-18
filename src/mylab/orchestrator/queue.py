@@ -5,10 +5,10 @@ from pathlib import Path
 from mylab.domain import QueueState, TaskRecord
 from mylab.services.executor import prepare_executor, run_executor
 from mylab.services.formatting import format_for_manifest
-from mylab.services.plans import create_initial_plan, create_iterated_plan
+from mylab.services.trials import create_initial_trial, create_iterated_trial
 from mylab.services.reports import write_summary
 from mylab.storage import read_json, write_json
-from mylab.storage.plan_layout import plan_paths, relative_to_run
+from mylab.storage.trial_layout import trial_paths, relative_to_run
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
@@ -51,12 +51,12 @@ def enqueue_initial_pipeline(run_dir: Path, model: str) -> None:
 
 
 def enqueue_iteration_pipeline(
-    run_dir: Path, parent_plan_id: str, feedback: str, model: str
+    run_dir: Path, parent_trial_id: str, feedback: str, model: str
 ) -> None:
     enqueue_task(
         run_dir,
         "iterate_plan",
-        {"parent_plan_id": parent_plan_id, "feedback": feedback, "model": model},
+        {"parent_trial_id": parent_trial_id, "feedback": feedback, "model": model},
     )
 
 
@@ -76,33 +76,33 @@ def dispatch(run_dir: Path, task: TaskRecord, allow_exec: bool) -> str:
     if task.kind == "format_repo":
         return str(format_for_manifest(run_dir))
     if task.kind == "create_plan":
-        return str(create_initial_plan(run_dir_to_paths(run_dir), manifest))
+        return str(create_initial_trial(run_dir_to_paths(run_dir), manifest))
     if task.kind == "iterate_plan":
         return str(
-            create_iterated_plan(
+            create_iterated_trial(
                 run_dir_to_paths(run_dir),
                 manifest,
-                parent_plan_id=str(task.payload["parent_plan_id"]),
+                parent_trial_id=str(task.payload["parent_trial_id"]),
                 feedback=str(task.payload["feedback"]),
             )
         )
     if task.kind == "prepare_executor":
-        plan_id = str(task.payload.get("plan_id") or manifest.latest_plan_id)
-        if not plan_id:
-            raise ValueError("no latest plan available for executor preparation")
+        trial_id = str(task.payload.get("trial_id") or manifest.latest_trial_id)
+        if not trial_id:
+            raise ValueError("no latest trial available for executor preparation")
         return str(
             prepare_executor(
-                run_dir, plan_id, model=str(task.payload.get("model", "gpt-5-mini"))
+                run_dir, trial_id, model=str(task.payload.get("model", "gpt-5-mini"))
             )
         )
     if task.kind == "run_executor":
         if not allow_exec:
             raise RuntimeError("execution task encountered but allow_exec is false")
-        plan_id = str(task.payload["plan_id"])
+        trial_id = str(task.payload["trial_id"])
         return str(
             run_executor(
                 run_dir,
-                plan_id,
+                trial_id,
                 model=str(task.payload.get("model", "gpt-5-mini")),
                 full_auto=bool(task.payload.get("full_auto", False)),
             )
@@ -111,7 +111,7 @@ def dispatch(run_dir: Path, task: TaskRecord, allow_exec: bool) -> str:
         return str(
             write_summary(
                 run_dir,
-                plan_id=str(task.payload["plan_id"]),
+                trial_id=str(task.payload["trial_id"]),
                 status=str(task.payload.get("status", "unknown")),
                 outcome=str(task.payload.get("outcome", "Summary placeholder.")),
                 evidence=[str(item) for item in task.payload.get("evidence", [])],
@@ -133,8 +133,8 @@ def run_dir_to_paths(run_dir: Path):
 def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> None:
     manifest = load_manifest(run_dir)
     if task.kind in {"create_plan", "iterate_plan"}:
-        if not manifest.latest_plan_id:
-            raise ValueError("manifest.latest_plan_id is empty after plan creation")
+        if not manifest.latest_trial_id:
+            raise ValueError("manifest.latest_trial_id is empty after trial creation")
         queue.tasks.append(
             TaskRecord(
                 task_id=next_task_id(queue),
@@ -142,7 +142,7 @@ def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> Non
                 status="pending",
                 created_at=utc_now(),
                 payload={
-                    "plan_id": manifest.latest_plan_id,
+                    "trial_id": manifest.latest_trial_id,
                     "model": str(task.payload.get("model", "gpt-5-mini")),
                 },
             )
@@ -156,8 +156,8 @@ def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> Non
                 status="pending",
                 created_at=utc_now(),
                 payload={
-                    "plan_id": str(
-                        task.payload.get("plan_id") or manifest.latest_plan_id
+                    "trial_id": str(
+                        task.payload.get("trial_id") or manifest.latest_trial_id
                     ),
                     "model": str(task.payload.get("model", "gpt-5-mini")),
                     "full_auto": False,
@@ -166,8 +166,8 @@ def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> Non
         )
         return
     if task.kind == "run_executor":
-        plan_id = str(task.payload["plan_id"])
-        scoped_paths = plan_paths(run_dir, plan_id)
+        trial_id = str(task.payload["trial_id"])
+        scoped_paths = trial_paths(run_dir, trial_id)
         queue.tasks.append(
             TaskRecord(
                 task_id=next_task_id(queue),
@@ -175,7 +175,7 @@ def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> Non
                 status="pending",
                 created_at=utc_now(),
                 payload={
-                    "plan_id": plan_id,
+                    "trial_id": trial_id,
                     "status": "completed",
                     "outcome": "Execution finished. Replace this placeholder with an evidence-based summary.",
                     "evidence": [
@@ -184,7 +184,7 @@ def enqueue_followups(run_dir: Path, queue: QueueState, task: TaskRecord) -> Non
                     ],
                     "artifacts": [
                         relative_to_run(scoped_paths.command, run_dir),
-                        relative_to_run(scoped_paths.plan, run_dir),
+                        relative_to_run(scoped_paths.trial, run_dir),
                     ],
                     "next_iteration": [
                         "Inspect the result report and replace this placeholder summary."

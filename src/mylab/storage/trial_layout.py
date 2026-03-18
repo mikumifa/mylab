@@ -7,15 +7,15 @@ from mylab.storage.io import ensure_dir
 
 
 @dataclass(frozen=True)
-class PlanPaths:
-    plan_id: str
+class TrialPaths:
+    trial_id: str
     root: Path
     references: Path
     control: Path
     jobs: Path
     logs: Path
-    plan: Path
-    plan_prompt: Path
+    trial: Path
+    trial_prompt: Path
     executor_prompt: Path
     card: Path
     status: Path
@@ -28,12 +28,12 @@ class PlanPaths:
     codex_events: Path
 
 
-def plan_root(run_dir: Path, plan_id: str) -> Path:
-    return run_dir / "plans" / plan_id
+def trial_root(run_dir: Path, trial_id: str) -> Path:
+    return run_dir / "trials" / trial_id
 
 
-def plan_paths(run_dir: Path, plan_id: str, *, ensure: bool = False) -> PlanPaths:
-    root = plan_root(run_dir, plan_id)
+def trial_paths(run_dir: Path, trial_id: str, *, ensure: bool = False) -> TrialPaths:
+    root = trial_root(run_dir, trial_id)
     references = root / "references"
     control = root / "control"
     jobs = root / "jobs"
@@ -44,15 +44,15 @@ def plan_paths(run_dir: Path, plan_id: str, *, ensure: bool = False) -> PlanPath
         ensure_dir(control)
         ensure_dir(jobs)
         ensure_dir(logs)
-    return PlanPaths(
-        plan_id=plan_id,
+    return TrialPaths(
+        trial_id=trial_id,
         root=root,
         references=references,
         control=control,
         jobs=jobs,
         logs=logs,
-        plan=root / "plan.md",
-        plan_prompt=control / "plan.prompt.md",
+        trial=root / "trial.md",
+        trial_prompt=control / "trial.prompt.md",
         executor_prompt=control / "executor.prompt.md",
         card=control / "card.json",
         status=control / "status.json",
@@ -70,5 +70,5 @@ def relative_to_run(path: Path, run_dir: Path) -> str:
     return str(path.relative_to(run_dir))
 
 
-def plan_iteration_log_path(run_dir: Path, plan_id: str) -> Path:
-    return plan_paths(run_dir, plan_id, ensure=True).logs / "iteration-agent.jsonl"
+def trial_iteration_log_path(run_dir: Path, trial_id: str) -> Path:
+    return trial_paths(run_dir, trial_id, ensure=True).logs / "iteration-agent.jsonl"

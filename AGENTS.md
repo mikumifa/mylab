@@ -6,7 +6,7 @@
 
 - 所有实验运行产物必须落在 `MYLAB_RUNS_DIR` 指定目录下。
 - 不允许把输出目录、日志目录或中间结果目录硬编码到论文仓库内部。
-- `plan.md`、`summary.md`、`jsonl` 日志格式必须保持稳定，方便下一轮 agent 继续消费。
+- `trial.md`、`summary.md`、`jsonl` 日志格式必须保持稳定，方便下一轮 agent 继续消费。
 - 单个迭代 agent 的工作必须持续写结构化日志到稳定文件，默认是 `logs/iteration-agent.jsonl`。
 - 开始执行前，目标仓库必须已经有至少一次提交，并且工作区必须是干净的；否则应提醒用户先提交或暂存，再退出。
 - 如果仓库内运行目录需要 `.gitignore` 规则，允许 agent 自动补充并只提交这一项，以保证分支切换期间 `.mylab_runs` 始终被忽略。
@@ -21,7 +21,7 @@
   - 重要功能代码位置和结构说明
   - 已验证有效或已知失败的做法
 - 如果启用了 Telegram bot，用户通过 bot 发送的文字和文件也属于下一轮可消费输入，必须保留原文和文件路径。
-- 必须维护 `plans/` 目录下的短索引，方便下一轮模型先看最短摘要再决定读哪些完整交付。
+- 必须维护 `trials/` 目录下的短索引，方便下一轮模型先看最短摘要再决定读哪些完整交付；这里的每个条目语义上表示一个 trial。
 
 ## Goal Discipline
 
@@ -38,13 +38,13 @@
 - 目标：围绕同一个 run 做“计划 -> 执行 -> 总结 -> 下一轮输入”的闭环。
 - 这个 agent 接受两类输入：
   - 首轮目标，例如用户目标或 `lab.md`
-  - 上一轮迭代交付，例如 `plan.md`、`summary.md`、结果文件、结构化日志、共享资产、plan 索引
+  - 上一轮迭代交付，例如 `trial.md`、`summary.md`、结果文件、结构化日志、共享资产、trial 索引
 - 这个 agent 在每轮内部要完成：
   1. 先检查实验仓库是否满足可编排要求
-  2. 生成新的 `plan.md`
-  3. 准备并执行该 plan
+  2. 生成新的 `trial.md`
+  3. 准备并执行该 trial
   4. 生成 `summary.md`
-  5. 回写共享资产和 `plans/` 索引
+  5. 回写共享资产和 `trials/` 索引
 - 这个 agent 的迭代关系像 RNN：
   - 当前轮输出会成为下一轮输入
   - 下一轮会复用前一轮交付来设计新架构、补跑实验、增加更特别的分析
@@ -52,15 +52,15 @@
 ## Stable Outputs
 
 - 每轮必须产出：
-  - `plans/plan-XXX.md`
-  - `summaries/plan-XXX.summary.md`
-  - `results/plan-XXX.result.md`
-  - `commands/plan-XXX.executor.sh`
+  - `trials/trial-XXX.md`
+  - `summaries/trial-XXX.summary.md`
+  - `results/trial-XXX.result.md`
+  - `commands/trial-XXX.executor.sh`
   - `logs/iteration-agent.jsonl`
-- `plans/` 目录额外维护：
-  - `plans/index.md`
-  - `plans/index.jsonl`
-- 全局共享资产维护在 runs 根目录下的仓库级资产文件中，不跟单个 plan 绑定。
+- `trials/` 目录额外维护：
+  - `trials/index.md`
+  - `trials/index.jsonl`
+- 全局共享资产维护在 runs 根目录下的仓库级资产文件中，不跟单个 trial 绑定。
 
 ## Shared Asset
 
@@ -76,11 +76,11 @@
 ## Iteration Contract
 
 - 首轮：
-  - 从用户目标生成 `plan-001.md`
+  - 从用户目标生成 `trial-001.md`
   - 执行后生成总结
-  - 回写共享资产与 plan 索引
+  - 回写共享资产与 trial 索引
 - 后续轮：
   - 读取上一轮以及更早轮的交付
-  - 在共享资产和 plan 索引的帮助下快速定位上下文
+  - 在共享资产和 trial 索引的帮助下快速定位上下文
   - 在已有结论基础上继续设计、实现、实验或分析
-  - 生成新的 `plan-XXX.md` 并继续闭环
+  - 生成新的 `trial-XXX.md` 并继续闭环

@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import mylab.services.executor as executor_module
 from mylab.domain import RunManifest
 from mylab.storage import write_text
-from mylab.storage.plan_layout import plan_paths
+from mylab.storage.trial_layout import trial_paths
 from mylab.storage.runs import init_run_dirs, save_manifest
 
 
@@ -20,8 +20,8 @@ class FakeNotifier:
         self.settings = settings
         self.agent_messages: list[tuple[str, str]] = []
 
-    def notify_agent_message(self, plan_id: str, text: str) -> bool:
-        self.agent_messages.append((plan_id, text))
+    def notify_agent_message(self, trial_id: str, text: str) -> bool:
+        self.agent_messages.append((trial_id, text))
         return True
 
 
@@ -40,7 +40,7 @@ class ExecutorNotificationTest(unittest.TestCase):
         self.root = Path(self.temp_dir.name)
         self.paths = init_run_dirs(self.root / "run")
         write_text(
-            plan_paths(self.paths.root, "plan-001", ensure=True).executor_prompt, "prompt"
+            trial_paths(self.paths.root, "trial-001", ensure=True).executor_prompt, "prompt"
         )
         save_manifest(
             self.paths,
@@ -68,7 +68,7 @@ class ExecutorNotificationTest(unittest.TestCase):
 
             output = executor_module.run_executor(
                 self.paths.root,
-                "plan-001",
+                "trial-001",
                 model=None,
                 full_auto=False,
             )
@@ -77,12 +77,12 @@ class ExecutorNotificationTest(unittest.TestCase):
             executor_module.NotificationClient = original_notifier
             executor_module.load_notification_settings = original_load_settings
 
-        self.assertEqual(output, plan_paths(self.paths.root, "plan-001").codex_last)
+        self.assertEqual(output, trial_paths(self.paths.root, "trial-001").codex_last)
         self.assertEqual(
             fake_notifier.agent_messages,
             [
-                ("plan-001", "first update"),
-                ("plan-001", "second update"),
+                ("trial-001", "first update"),
+                ("trial-001", "second update"),
             ],
         )
 

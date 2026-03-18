@@ -5,11 +5,11 @@ import re
 
 from mylab.config import SUMMARY_HEADINGS
 from mylab.logging import logger
-from mylab.services.assets import update_repo_asset, upsert_plan_index_record
+from mylab.services.assets import update_repo_asset, upsert_trial_index_record
 from mylab.storage import append_jsonl, read_text, write_json, write_text
-from mylab.storage.plan_layout import (
-    plan_iteration_log_path,
-    plan_paths,
+from mylab.storage.trial_layout import (
+    trial_iteration_log_path,
+    trial_paths,
     relative_to_run,
 )
 from mylab.storage.runs import load_manifest
@@ -19,7 +19,7 @@ from mylab.utils import utc_now
 def render_summary_markdown(
     *,
     run_id: str,
-    plan_id: str,
+    trial_id: str,
     status: str,
     outcome: str,
     evidence: list[str],
@@ -31,7 +31,7 @@ def render_summary_markdown(
 ) -> str:
     metadata_lines = [
         f"- run_id: {run_id}",
-        f"- plan_id: {plan_id}",
+        f"- trial_id: {trial_id}",
         f"- status: {status}",
         f"- generated_at: {utc_now()}",
     ]
@@ -130,7 +130,7 @@ def _fallback_next_iteration(
     if goal_language == "zh":
         return [
             f"基于 {target_text} 补充或调整与当前结论直接相关的代码；如果上一轮 work branch 仍然适合继续，可直接从该分支推进，不必强制从 main 重新切出。",
-            "运行支撑当前 plan 结论所需要的实验或验证；只有在确实能推进用户原始目标时才增加新的实验。",
+            "运行支撑当前 trial 结论所需要的实验或验证；只有在确实能推进用户原始目标时才增加新的实验。",
             "补全文档，更新 references/result.md、references/summary.md 和共享资产，记录改了哪些代码、跑了哪些实验、结论如何支撑当前任务。",
         ]
     fallback_target_text = (
@@ -138,14 +138,14 @@ def _fallback_next_iteration(
     )
     return [
         f"Update the code directly tied to the current result, focusing on {fallback_target_text}; if the previous work branch is still the right base, continue from it instead of forcing a fresh branch from main.",
-        "Run the experiments needed to support the current plan conclusion, and add new experiments only when they materially advance the user's goal.",
+        "Run the experiments needed to support the current trial conclusion, and add new experiments only when they materially advance the user's goal.",
         "Finish the documentation by updating references/result.md, references/summary.md, and the shared asset with the code changes, validation steps, and the conclusion they support.",
     ]
 
 
 def summarize_execution_outputs(
     run_dir: Path,
-    plan_id: str,
+    trial_id: str,
     *,
     goal_language: str,
     goal_text: str | None = None,
@@ -162,7 +162,7 @@ def summarize_execution_outputs(
         empty_report = "Execution finished, but the result report is empty."
         write_report = "Open the executor output and write a structured result report first, then derive the next code, experiment, and documentation steps from it."
         rerun_report = "Re-run the executor or inspect why the result report was empty, then spell out the next code, experiment, and documentation steps."
-    paths = plan_paths(run_dir, plan_id)
+    paths = trial_paths(run_dir, trial_id)
     result_path = paths.result
     codex_last_path = paths.codex_last
     source_path = result_path if result_path.exists() else codex_last_path
@@ -226,14 +226,14 @@ def summarize_execution_outputs(
 
 def write_summary(
     run_dir: Path,
-    plan_id: str,
+    trial_id: str,
     status: str,
     outcome: str | None = None,
     evidence: list[str] | None = None,
     artifacts: list[str] | None = None,
     next_iteration: list[str] | None = None,
 ) -> Path:
-    logger.info("Writing summary for {}", plan_id)
+    logger.info("Writing summary for {}", trial_id)
     manifest = load_manifest(run_dir)
     goal_text: str | None = None
     if manifest.goal_file:
@@ -249,11 +249,11 @@ def write_summary(
     ):
         outcome, evidence, artifacts, next_iteration = summarize_execution_outputs(
             run_dir,
-            plan_id,
+            trial_id,
             goal_language=manifest.goal_language,
             goal_text=goal_text,
         )
-    paths = plan_paths(run_dir, plan_id, ensure=True)
+    paths = trial_paths(run_dir, trial_id, ensure=True)
     git_report_path = paths.git_report
     if git_report_path.exists():
         git_artifact = relative_to_run(git_report_path, run_dir)
@@ -268,7 +268,7 @@ def write_summary(
             evidence = [*evidence, git_evidence]
     summary = render_summary_markdown(
         run_id=run_dir.name,
-        plan_id=plan_id,
+        trial_id=trial_id,
         status=status,
         outcome=outcome,
         evidence=evidence,
@@ -284,35 +284,35 @@ def write_summary(
     summary_path = paths.summary
     write_text(summary_path, summary)
     append_jsonl(
-        plan_iteration_log_path(run_dir, plan_id),
+        trial_iteration_log_path(run_dir, trial_id),
         {
             "ts": utc_now(),
             "level": "INFO",
             "event": "summary_written",
-            "plan_id": plan_id,
+            "trial_id": trial_id,
         },
     )
     write_json(
         paths.status,
         {
-            "plan_id": plan_id,
+            "trial_id": trial_id,
             "status": status,
             "summary_written_at": utc_now(),
             "summary_path": relative_to_run(summary_path, run_dir),
         },
     )
-    upsert_plan_index_record(
+    upsert_trial_index_record(
         run_dir=run_dir,
-        plan_id=plan_id,
-        parent_plan_id=None,
-        plan_kind="",
+        trial_id=trial_id,
+        parent_trial_id=None,
+        trial_kind="",
         status=status,
         short_summary=outcome,
         artifacts=[relative_to_run(summary_path, run_dir), *artifacts],
     )
     update_repo_asset(
         run_dir=run_dir,
-        plan_id=plan_id,
+        trial_id=trial_id,
         status=status,
         outcome=outcome,
         evidence=evidence,
@@ -324,10 +324,10 @@ def write_summary(
 
         push_summary_to_telegram(
             run_dir,
-            plan_id,
+            trial_id,
             summary_path,
             summary_content=summary,
         )
     except Exception:
-        logger.exception("Failed to push summary to Telegram for {}", plan_id)
+        logger.exception("Failed to push summary to Telegram for {}", trial_id)
     return summary_path

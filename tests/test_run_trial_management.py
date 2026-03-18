@@ -13,11 +13,11 @@ import mylab.commands.root as root_module
 from mylab.domain import QueueState, RunManifest, TaskRecord
 from mylab.orchestrator.queue import load_queue, save_queue
 from mylab.storage import write_text
-from mylab.storage.plan_layout import plan_paths
+from mylab.storage.trial_layout import trial_paths
 from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
 
 
-class RunPlanManagementTest(unittest.TestCase):
+class RunTrialManagementTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory(prefix="mylab-run-manage-")
         self.root = Path(self.temp_dir.name)
@@ -47,13 +47,13 @@ class RunPlanManagementTest(unittest.TestCase):
                 source_branch="main",
                 goal_file=str(goal_file),
                 runs_env_var="MYLAB_RUNS_DIR",
-                latest_plan_id=None,
+                latest_trial_id=None,
             ),
         )
         return paths.root
 
-    def test_plan_commands_require_active_run(self) -> None:
-        exit_code = root_module.main(["plan", "ls"])
+    def test_trial_commands_require_active_run(self) -> None:
+        exit_code = root_module.main(["trial", "ls"])
         self.assertEqual(exit_code, 1)
 
     def test_run_use_and_ls(self) -> None:
@@ -75,14 +75,14 @@ class RunPlanManagementTest(unittest.TestCase):
         self.assertIn("* run-001", output)
         self.assertIn("run-002", output)
 
-    def test_plan_cat_and_rm(self) -> None:
+    def test_trial_cat_and_rm(self) -> None:
         run_dir = self._create_run("run-001")
         paths = init_run_dirs(run_dir)
         manifest = load_manifest(run_dir)
-        manifest.latest_plan_id = "plan-001"
+        manifest.latest_trial_id = "trial-001"
         save_manifest(paths, manifest)
-        scoped_paths = plan_paths(run_dir, "plan-001", ensure=True)
-        write_text(scoped_paths.plan, "# test plan")
+        scoped_paths = trial_paths(run_dir, "trial-001", ensure=True)
+        write_text(scoped_paths.trial, "# test trial")
         save_queue(
             run_dir,
             QueueState(
@@ -92,33 +92,33 @@ class RunPlanManagementTest(unittest.TestCase):
                         kind="run_executor",
                         status="pending",
                         created_at="2026-03-18T00:00:00Z",
-                        payload={"plan_id": "plan-001"},
+                        payload={"trial_id": "trial-001"},
                     )
                 ]
             ),
         )
-        original_delete = root_module._delete_plan_branch_if_present
+        original_delete = root_module._delete_trial_branch_if_present
         try:
-            root_module._delete_plan_branch_if_present = lambda _run_dir, _plan_id: None
+            root_module._delete_trial_branch_if_present = lambda _run_dir, _trial_id: None
             root_module.main(["run", "use", "run-001"])
             with io.StringIO() as buffer:
                 original_stdout = sys.stdout
                 try:
                     sys.stdout = buffer
-                    exit_code = root_module.main(["plan", "cat", "plan-001"])
+                    exit_code = root_module.main(["trial", "cat", "trial-001"])
                 finally:
                     sys.stdout = original_stdout
                 output = buffer.getvalue()
             self.assertEqual(exit_code, 0)
-            self.assertIn("# test plan", output)
+            self.assertIn("# test trial", output)
 
-            self.assertEqual(root_module.main(["plan", "rm", "plan-001"]), 0)
+            self.assertEqual(root_module.main(["trial", "rm", "trial-001"]), 0)
         finally:
-            root_module._delete_plan_branch_if_present = original_delete
+            root_module._delete_trial_branch_if_present = original_delete
 
         self.assertFalse(scoped_paths.root.exists())
         self.assertEqual(load_queue(run_dir).tasks, [])
-        self.assertIsNone(load_manifest(run_dir).latest_plan_id)
+        self.assertIsNone(load_manifest(run_dir).latest_trial_id)
 
 
 if __name__ == "__main__":

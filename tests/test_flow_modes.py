@@ -104,7 +104,7 @@ class FlowModeTest(unittest.TestCase):
                 source_branch="main",
                 goal_file=str(self.paths.inputs / "goal.txt"),
                 runs_env_var="MYLAB_RUNS_DIR",
-                latest_plan_id="plan-001",
+                latest_trial_id="trial-001",
             ),
         )
         queue = QueueState(tasks=[])
@@ -178,7 +178,7 @@ class FlowModeTest(unittest.TestCase):
                 source_branch="main",
                 goal_file=str(self.paths.inputs / "goal.txt"),
                 runs_env_var="MYLAB_RUNS_DIR",
-                latest_plan_id="plan-001",
+                latest_trial_id="trial-001",
             ),
         )
         queue = QueueState(tasks=[])
@@ -218,7 +218,7 @@ class FlowModeTest(unittest.TestCase):
                 source_branch="main",
                 goal_file=str(self.paths.inputs / "goal.txt"),
                 runs_env_var="MYLAB_RUNS_DIR",
-                latest_plan_id="plan-001",
+                latest_trial_id="trial-001",
             ),
         )
         runner = FakeSerialFlowRunner(
@@ -260,7 +260,7 @@ class FlowModeTest(unittest.TestCase):
                 source_branch="main",
                 goal_file=str(self.paths.inputs / "goal.txt"),
                 runs_env_var="MYLAB_RUNS_DIR",
-                latest_plan_id="plan-001",
+                latest_trial_id="trial-001",
             ),
         )
         queue = QueueState(tasks=[])
@@ -302,7 +302,7 @@ class FlowModeTest(unittest.TestCase):
                 source_branch="main",
                 goal_file=str(self.paths.inputs / "goal.txt"),
                 runs_env_var="MYLAB_RUNS_DIR",
-                latest_plan_id="plan-001",
+                latest_trial_id="trial-001",
                 feedback_cursor=0,
             ),
         )
@@ -350,7 +350,7 @@ class FlowModeTest(unittest.TestCase):
                 source_branch="main",
                 goal_file=str(self.paths.inputs / "goal.txt"),
                 runs_env_var="MYLAB_RUNS_DIR",
-                latest_plan_id="plan-001",
+                latest_trial_id="trial-001",
             ),
         )
         queue = QueueState(tasks=[])

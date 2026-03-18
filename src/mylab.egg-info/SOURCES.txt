@@ -29,7 +29,7 @@ src/mylab/services/executor.py
 src/mylab/services/formatting.py
 src/mylab/services/git_lifecycle.py
 src/mylab/services/notifications.py
-src/mylab/services/plans.py
+src/mylab/services/trials.py
 src/mylab/services/repo_ignore.py
 src/mylab/services/reports.py
 src/mylab/services/run_control.py

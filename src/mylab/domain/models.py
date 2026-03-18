@@ -10,7 +10,7 @@ class RunPaths:
     root: Path
     inputs: Path
     assets: Path
-    plans: Path
+    trials: Path
     logs: Path
     commands: Path
     manifests: Path
@@ -27,7 +27,7 @@ class RunManifest:
     goal_language: str = "en"
     status: str = "active"
     current_iteration: int = 1
-    latest_plan_id: str | None = None
+    latest_trial_id: str | None = None
     original_branch: str | None = None
     original_head_commit: str | None = None
     work_branch: str | None = None

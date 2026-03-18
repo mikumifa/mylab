@@ -7,17 +7,17 @@ from .io import (
     write_json,
     write_text,
 )
-from .plan_layout import PlanPaths, plan_paths, plan_root, relative_to_run
+from .trial_layout import TrialPaths, trial_paths, trial_root, relative_to_run
 from .runs import init_run_dirs, load_manifest, save_manifest
 
 __all__ = [
-    "PlanPaths",
+    "TrialPaths",
     "append_jsonl",
     "ensure_dir",
     "init_run_dirs",
     "load_manifest",
-    "plan_paths",
-    "plan_root",
+    "trial_paths",
+    "trial_root",
     "read_json",
     "read_text",
     "relative_to_run",

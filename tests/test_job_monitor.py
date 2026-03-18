@@ -14,7 +14,7 @@ from mylab.commands.root import build_parser, cmd_start_job
 from mylab.domain import RunManifest
 from mylab.services.job_monitor import start_job, tail_job, wait_for_job
 from mylab.storage import write_text
-from mylab.storage.plan_layout import plan_paths
+from mylab.storage.trial_layout import trial_paths
 from mylab.storage.runs import init_run_dirs, save_manifest
 
 
@@ -27,8 +27,8 @@ class JobMonitorTest(unittest.TestCase):
                 "start-job",
                 "--run-dir",
                 "/tmp/run",
-                "--plan-id",
-                "plan-001",
+                "--trial-id",
+                "trial-001",
                 "--command",
                 "echo hi",
             ]
@@ -41,7 +41,7 @@ class JobMonitorTest(unittest.TestCase):
     def test_cmd_start_job_accepts_legacy_programmatic_command_field(self) -> None:
         args = Namespace(
             run_dir=self.paths.root,
-            plan_id="plan-001",
+            trial_id="trial-001",
             name="direct",
             cwd=str(self.root),
             command="echo direct",
@@ -89,7 +89,7 @@ class JobMonitorTest(unittest.TestCase):
     def test_start_wait_and_tail_job(self) -> None:
         started = start_job(
             self.paths.root,
-            "plan-001",
+            "trial-001",
             "sleep 1; echo done",
             name="train",
             cwd=str(self.root),
@@ -103,7 +103,7 @@ class JobMonitorTest(unittest.TestCase):
         )
         self.assertEqual(waited["status"], "completed")
         self.assertEqual(waited["exit_code"], 0)
-        scoped_paths = plan_paths(self.paths.root, "plan-001")
+        scoped_paths = trial_paths(self.paths.root, "trial-001")
         self.assertTrue(str(scoped_paths.logs) in waited["stdout_path"])
         self.assertTrue((scoped_paths.jobs / f"{started['job_id']}.json").exists())
         self.assertTrue((scoped_paths.jobs / f"{started['job_id']}.runner.sh").exists())
@@ -113,7 +113,7 @@ class JobMonitorTest(unittest.TestCase):
     def test_wait_job_returns_running_when_window_expires(self) -> None:
         started = start_job(
             self.paths.root,
-            "plan-001",
+            "trial-001",
             "sleep 3; echo later",
             name="slow",
             cwd=str(self.root),

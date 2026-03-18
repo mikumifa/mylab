@@ -245,12 +245,12 @@ class NotificationClient:
         )
         return ok
 
-    def notify_agent_message(self, plan_id: str, text: str) -> bool:
+    def notify_agent_message(self, trial_id: str, text: str) -> bool:
         message = text.strip()
         if not message:
             return False
         return self.notify(
-            f"mylab agent {plan_id}",
+            f"mylab agent {trial_id}",
             message[:4000],
             notify_type="info",
         )

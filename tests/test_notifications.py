@@ -97,7 +97,7 @@ class NotificationServiceTest(unittest.TestCase):
 
                 sent = client.notify(
                     "mylab summary ready",
-                    "plan-001 completed",
+                    "trial-001 completed",
                     notify_type="success",
                 )
 
@@ -105,7 +105,7 @@ class NotificationServiceTest(unittest.TestCase):
                 self.assertEqual(fake_apprise.urls, ["discord://token/channel"])
                 self.assertEqual(len(fake_apprise.configs), 1)
                 self.assertEqual(fake_apprise.calls[0]["title"], "mylab summary ready")
-                self.assertEqual(fake_apprise.calls[0]["body"], "plan-001 completed")
+                self.assertEqual(fake_apprise.calls[0]["body"], "trial-001 completed")
                 self.assertEqual(fake_apprise.calls[0]["tag"], "lab")
                 self.assertEqual(fake_apprise.calls[0]["notify_type"], "SUCCESS")
 
@@ -196,14 +196,14 @@ class NotificationServiceTest(unittest.TestCase):
 
                 sent = client.notify(
                     "mylab summary ready",
-                    "plan-001 completed",
+                    "trial-001 completed",
                     notify_type="success",
                 )
 
                 self.assertTrue(sent)
                 self.assertEqual(
                     sent_messages,
-                    ["mylab summary ready\nplan-001 completed"],
+                    ["mylab summary ready\ntrial-001 completed"],
                 )
         finally:
             notifications_module.send_feishu_message = original_sender
@@ -238,14 +238,14 @@ class NotificationServiceTest(unittest.TestCase):
 
                 sent = client.notify(
                     "mylab summary ready",
-                    "plan-001 completed",
+                    "trial-001 completed",
                     notify_type="success",
                 )
 
                 self.assertTrue(sent)
                 self.assertEqual(
                     sent_payloads,
-                    [("mylab summary ready", "plan-001 completed", "success")],
+                    [("mylab summary ready", "trial-001 completed", "success")],
                 )
         finally:
             notifications_module.send_telegram_notification = original_sender

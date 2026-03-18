@@ -36,10 +36,10 @@ from .telegram_bot import (
     telegram_notifications_enabled,
     write_sample_config,
 )
-from .plans import (
+from .trials import (
     bootstrap_run,
-    create_initial_plan,
-    create_iterated_plan,
+    create_initial_trial,
+    create_iterated_trial,
     default_deliverables,
     heuristic_questions,
     heuristic_steps,
@@ -57,8 +57,8 @@ from .run_control import (
 __all__ = [
     "bootstrap_run",
     "configure_feishu_bot",
-    "create_initial_plan",
-    "create_iterated_plan",
+    "create_initial_trial",
+    "create_iterated_trial",
     "default_deliverables",
     "format_repo_report",
     "format_telegram_notification_message",

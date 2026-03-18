@@ -8,7 +8,7 @@ from mylab.logging import logger
 from mylab.services.repo_ignore import ensure_run_dir_ignored
 from mylab.services.repo_skills import ensure_repo_skills_installed
 from mylab.storage import append_jsonl
-from mylab.storage.plan_layout import plan_iteration_log_path, plan_paths
+from mylab.storage.trial_layout import trial_iteration_log_path, trial_paths
 from mylab.storage.runs import init_run_dirs, save_manifest
 from mylab.utils import (
     detect_git_branch,
@@ -72,7 +72,7 @@ def prepare_repo_for_run(
     return original_branch, original_head
 
 
-def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str:
+def ensure_run_branch(run_dir: Path, manifest: RunManifest, trial_id: str) -> str:
     paths = init_run_dirs(run_dir)
     git = GitManager(Path(manifest.repo_path), paths.logs / "git-lifecycle.jsonl")
     current = git.current_branch()
@@ -80,9 +80,9 @@ def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str
         manifest.original_branch = current
     work_branch = (
         manifest.work_branch
-        or f"mylab/{slugify(manifest.run_id, max_length=24)}/{plan_id}"
+        or f"mylab/{slugify(manifest.run_id, max_length=24)}/{trial_id}"
     )
-    logger.info("Preparing work branch {} for plan {}", work_branch, plan_id)
+    logger.info("Preparing work branch {} for trial {}", work_branch, trial_id)
     if manifest.work_branch and git.branch_exists(work_branch):
         git.checkout(work_branch)
     else:
@@ -95,27 +95,27 @@ def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str
         {
             "ts": utc_now(),
             "event": "run_branch_prepared",
-            "plan_id": plan_id,
+            "trial_id": trial_id,
             "source_branch": manifest.source_branch,
             "work_branch": work_branch,
             "returned_from": current,
         },
     )
     append_jsonl(
-        plan_iteration_log_path(run_dir, plan_id),
+        trial_iteration_log_path(run_dir, trial_id),
         {
             "ts": utc_now(),
             "event": "run_branch_prepared",
-            "plan_id": plan_id,
+            "trial_id": trial_id,
             "work_branch": work_branch,
         },
     )
     return work_branch
 
 
-def commit_iteration_changes(run_dir: Path, manifest: RunManifest, plan_id: str) -> Path:
+def commit_iteration_changes(run_dir: Path, manifest: RunManifest, trial_id: str) -> Path:
     paths = init_run_dirs(run_dir)
-    scoped_paths = plan_paths(run_dir, plan_id, ensure=True)
+    scoped_paths = trial_paths(run_dir, trial_id, ensure=True)
     git = GitManager(Path(manifest.repo_path), paths.logs / "git-lifecycle.jsonl")
     branch = manifest.work_branch or git.current_branch()
     if git.current_branch() != branch:
@@ -124,7 +124,7 @@ def commit_iteration_changes(run_dir: Path, manifest: RunManifest, plan_id: str)
     committed = False
     if status:
         git.add("-A")
-        head_commit = git.commit(f"mylab: deliver {plan_id}")
+        head_commit = git.commit(f"mylab: deliver {trial_id}")
         committed = True
     else:
         head_commit = git.head_commit()
@@ -136,7 +136,7 @@ def commit_iteration_changes(run_dir: Path, manifest: RunManifest, plan_id: str)
         "\n".join(
             [
                 "# Git Delivery",
-                f"- plan_id: {plan_id}",
+                f"- trial_id: {trial_id}",
                 f"- work_branch: {branch}",
                 f"- head_commit: {head_commit}",
                 f"- committed_new_changes: {'yes' if committed else 'no'}",
@@ -153,18 +153,18 @@ def commit_iteration_changes(run_dir: Path, manifest: RunManifest, plan_id: str)
         {
             "ts": utc_now(),
             "event": "iteration_git_delivered",
-            "plan_id": plan_id,
+            "trial_id": trial_id,
             "work_branch": branch,
             "head_commit": head_commit,
             "committed_new_changes": committed,
         },
     )
     append_jsonl(
-        plan_iteration_log_path(run_dir, plan_id),
+        trial_iteration_log_path(run_dir, trial_id),
         {
             "ts": utc_now(),
             "event": "iteration_git_delivered",
-            "plan_id": plan_id,
+            "trial_id": trial_id,
             "work_branch": branch,
             "head_commit": head_commit,
             "committed_new_changes": committed,

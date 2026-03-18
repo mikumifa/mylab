@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from mylab.domain import RunManifest
 from mylab.services.assets import repo_asset_path
 from mylab.services.reports import write_summary
-from mylab.storage.plan_layout import plan_paths
+from mylab.storage.trial_layout import trial_paths
 from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
 
 
@@ -38,7 +38,7 @@ class ReportsTest(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_write_summary_uses_structured_result_report(self) -> None:
-        scoped_paths = plan_paths(self.paths.root, "plan-001", ensure=True)
+        scoped_paths = trial_paths(self.paths.root, "trial-001", ensure=True)
         scoped_paths.result.write_text(
             "\n".join(
                 [
@@ -50,8 +50,8 @@ class ReportsTest(unittest.TestCase):
                     "2. logs/train.stdout.log",
                     "",
                     "# Artifacts",
-                    "1. plans/plan-001/executor.sh",
-                    "2. plans/plan-001/references/result.md",
+                    "1. trials/trial-001/executor.sh",
+                    "2. trials/trial-001/references/result.md",
                     "",
                     "# Next Iteration",
                     "1. Compare against the lighter baseline.",
@@ -63,11 +63,11 @@ class ReportsTest(unittest.TestCase):
 
         summary_path = write_summary(
             self.paths.root,
-            "plan-001",
+            "trial-001",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"plans/plan-001/codex.events.jsonl"],
-            [f"plans/plan-001/executor.sh"],
+            [f"trials/trial-001/codex.events.jsonl"],
+            [f"trials/trial-001/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 
@@ -78,7 +78,7 @@ class ReportsTest(unittest.TestCase):
         self.assertNotIn("Replace this placeholder", content)
 
     def test_write_summary_falls_back_to_codex_last_message(self) -> None:
-        scoped_paths = plan_paths(self.paths.root, "plan-002", ensure=True)
+        scoped_paths = trial_paths(self.paths.root, "trial-002", ensure=True)
         scoped_paths.codex_last.write_text(
             "Implemented configurable output root and preserved stdout under the run directory.\n",
             encoding="utf-8",
@@ -86,11 +86,11 @@ class ReportsTest(unittest.TestCase):
 
         summary_path = write_summary(
             self.paths.root,
-            "plan-002",
+            "trial-002",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"plans/plan-002/codex.events.jsonl"],
-            [f"plans/plan-002/executor.sh"],
+            [f"trials/trial-002/codex.events.jsonl"],
+            [f"trials/trial-002/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 
@@ -99,12 +99,12 @@ class ReportsTest(unittest.TestCase):
             "Implemented configurable output root and preserved stdout under the run directory.",
             content,
         )
-        self.assertIn("plans/plan-002/references/codex.last.md", content)
+        self.assertIn("trials/trial-002/references/codex.last.md", content)
         self.assertIn("Finish the documentation by updating references/result.md, references/summary.md, and the shared asset", content)
         self.assertNotIn("Replace this placeholder", content)
 
     def test_write_summary_generates_structured_next_iteration_from_result_report(self) -> None:
-        scoped_paths = plan_paths(self.paths.root, "plan-005", ensure=True)
+        scoped_paths = trial_paths(self.paths.root, "trial-005", ensure=True)
         scoped_paths.result.write_text(
             "\n".join(
                 [
@@ -117,7 +117,7 @@ class ReportsTest(unittest.TestCase):
                     "",
                     "# Artifacts",
                     "1. src/example_lab/train.py",
-                    "2. plans/plan-005/references/summary.md",
+                    "2. trials/trial-005/references/summary.md",
                 ]
             )
             + "\n",
@@ -126,46 +126,49 @@ class ReportsTest(unittest.TestCase):
 
         summary_path = write_summary(
             self.paths.root,
-            "plan-005",
+            "trial-005",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"plans/plan-005/codex.events.jsonl"],
-            [f"plans/plan-005/executor.sh"],
+            [f"trials/trial-005/codex.events.jsonl"],
+            [f"trials/trial-005/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 
         content = summary_path.read_text(encoding="utf-8")
         self.assertIn("focusing on src/example_lab/models/mlp.py, src/example_lab/train.py", content)
-        self.assertIn("Run only the smallest experiments or checks needed", content)
+        self.assertIn(
+            "Run the experiments needed to support the current trial conclusion",
+            content,
+        )
         self.assertIn("Finish the documentation by updating references/result.md, references/summary.md, and the shared asset", content)
 
     def test_write_summary_includes_git_delivery_metadata(self) -> None:
         manifest = load_manifest(self.paths.root)
         manifest.goal_language = "zh"
-        manifest.work_branch = "mylab/run-001/plan-001"
+        manifest.work_branch = "mylab/run-001/trial-001"
         manifest.latest_work_commit = "abc1234"
         save_manifest(self.paths, manifest)
-        plan_paths(self.paths.root, "plan-003", ensure=True).git_report.write_text(
-            "# Git Delivery\n- work_branch: mylab/run-001/plan-001\n- head_commit: abc1234\n",
+        trial_paths(self.paths.root, "trial-003", ensure=True).git_report.write_text(
+            "# Git Delivery\n- work_branch: mylab/run-001/trial-001\n- head_commit: abc1234\n",
             encoding="utf-8",
         )
 
         summary_path = write_summary(
             self.paths.root,
-            "plan-003",
+            "trial-003",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"plans/plan-003/codex.events.jsonl"],
-            [f"plans/plan-003/executor.sh"],
+            [f"trials/trial-003/codex.events.jsonl"],
+            [f"trials/trial-003/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 
         content = summary_path.read_text(encoding="utf-8")
         self.assertIn("- goal_language: zh", content)
-        self.assertIn("- work_branch: mylab/run-001/plan-001", content)
+        self.assertIn("- work_branch: mylab/run-001/trial-001", content)
         self.assertIn("- work_commit: abc1234", content)
-        self.assertIn("plans/plan-003/references/git.md", content)
-        self.assertIn("git:mylab/run-001/plan-001@abc1234", content)
+        self.assertIn("trials/trial-003/references/git.md", content)
+        self.assertIn("git:mylab/run-001/trial-001@abc1234", content)
 
     def test_write_summary_uses_goal_language_for_missing_report(self) -> None:
         manifest = load_manifest(self.paths.root)
@@ -177,11 +180,11 @@ class ReportsTest(unittest.TestCase):
 
         summary_path = write_summary(
             self.paths.root,
-            "plan-004",
+            "trial-004",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"plans/plan-004/codex.events.jsonl"],
-            [f"plans/plan-004/executor.sh"],
+            [f"trials/trial-004/codex.events.jsonl"],
+            [f"trials/trial-004/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 
@@ -190,7 +193,7 @@ class ReportsTest(unittest.TestCase):
         self.assertIn("先打开 executor 输出并补写结构化结果报告", content)
 
     def test_write_summary_keeps_repo_asset_as_general_runbook(self) -> None:
-        scoped_paths = plan_paths(self.paths.root, "plan-006", ensure=True)
+        scoped_paths = trial_paths(self.paths.root, "trial-006", ensure=True)
         scoped_paths.result.write_text(
             "\n".join(
                 [
@@ -201,7 +204,7 @@ class ReportsTest(unittest.TestCase):
                     "1. results/metrics.json",
                     "",
                     "# Artifacts",
-                    "1. plans/plan-006/references/result.md",
+                    "1. trials/trial-006/references/result.md",
                     "",
                     "# Next Iteration",
                     "1. Compare against the lighter baseline.",
@@ -213,11 +216,11 @@ class ReportsTest(unittest.TestCase):
 
         write_summary(
             self.paths.root,
-            "plan-006",
+            "trial-006",
             "completed",
             "Execution finished. Replace this placeholder with an evidence-based summary.",
-            [f"plans/plan-006/codex.events.jsonl"],
-            [f"plans/plan-006/executor.sh"],
+            [f"trials/trial-006/codex.events.jsonl"],
+            [f"trials/trial-006/executor.sh"],
             ["Inspect the result report and replace this placeholder summary."],
         )
 

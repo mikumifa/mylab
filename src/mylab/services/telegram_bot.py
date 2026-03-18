@@ -20,7 +20,7 @@ from mylab.config import (
 )
 from mylab.logging import logger
 from mylab.storage import append_jsonl, ensure_dir, read_json, write_json, write_text
-from mylab.storage.plan_layout import plan_paths
+from mylab.storage.trial_layout import trial_paths
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
@@ -600,7 +600,7 @@ class TelegramBotClient:
         if lowered == "/continue":
             self._save_text_feedback(
                 chat_id,
-                "Continue to the next full iteration based on the latest plan, "
+                "Continue to the next full iteration based on the latest trial, "
                 "summary, result report, repository shared asset, and preserved "
                 "execution evidence.",
                 message_id,
@@ -620,7 +620,7 @@ class TelegramBotClient:
             self._save_text_feedback(chat_id, payload, message_id, scope=NEXT_SCOPE)
             self.send_message(
                 chat_id,
-                "Next guidance saved. It will be injected into the next plan only.",
+                "Next guidance saved. It will be injected into the next trial only.",
             )
             return
         if text.startswith("/all ") or text.startswith("/run "):
@@ -632,7 +632,7 @@ class TelegramBotClient:
             self._save_text_feedback(chat_id, payload, message_id, scope=ALL_SCOPE)
             self.send_message(
                 chat_id,
-                "All-plan guidance saved. It will be carried into future plans.",
+                "All-trial guidance saved. It will be carried into future trials.",
             )
             return
         self._handle_help(chat_id)
@@ -641,7 +641,7 @@ class TelegramBotClient:
         self._save_text_feedback(chat_id, text, message_id, scope=NEXT_SCOPE)
         self.send_message(
             chat_id,
-            "Next guidance saved. Use /all <text> for guidance that should apply to future plans.",
+            "Next guidance saved. Use /all <text> for guidance that should apply to future trials.",
         )
 
     def _handle_document(
@@ -751,8 +751,8 @@ def write_sample_config(path: Path = CONFIG_FILE) -> Path:
             "",
             "# Telegram usage:",
             "# /continue    -> continue the next iteration from current context",
-            "# /next <text> -> only the next plan",
-            "# /all <text>  -> guidance for all later plans",
+            "# /next <text> -> only the next trial",
+            "# /all <text>  -> guidance for all later trials",
             "# /on | /off   -> toggle notifications",
         ]
     )
@@ -760,17 +760,17 @@ def write_sample_config(path: Path = CONFIG_FILE) -> Path:
     return path
 
 
-def _summary_message(summary_content: str, *, run_id: str, plan_id: str) -> str:
+def _summary_message(summary_content: str, *, run_id: str, trial_id: str) -> str:
     outcome = _extract_summary_section(summary_content, "# Outcome")
     next_iteration = _extract_summary_section(summary_content, "# Next Iteration")
     parts = [
-        f"mylab summary ready\nrun={run_id}\nplan={plan_id}",
+        f"mylab summary ready\nrun={run_id}\ntrial={trial_id}",
     ]
     if outcome:
         parts.append(f"Outcome:\n{outcome}")
     if next_iteration:
         parts.append(f"Next Iteration:\n{next_iteration}")
-    parts.append("Reply /continue to proceed, or /next <text> to guide the next plan.")
+    parts.append("Reply /continue to proceed, or /next <text> to guide the next trial.")
     return "\n\n".join(parts)[:4000]
 
 
@@ -839,7 +839,7 @@ def _extract_summary_section(content: str, heading: str) -> str:
 
 def push_summary_to_telegram(
     run_dir: Path,
-    plan_id: str,
+    trial_id: str,
     summary_path: Path,
     *,
     summary_content: str,
@@ -865,21 +865,21 @@ def push_summary_to_telegram(
     if not chat_ids:
         return False
     client = TelegramBotClient(settings)
-    message = _summary_message(summary_content, run_id=run_dir.name, plan_id=plan_id)
-    paths = plan_paths(run_dir, plan_id)
+    message = _summary_message(summary_content, run_id=run_dir.name, trial_id=trial_id)
+    paths = trial_paths(run_dir, trial_id)
     result_path = paths.result
     codex_last_path = paths.codex_last
     sent = False
     for chat_id in chat_ids:
         client.send_message(chat_id, message)
-        client.send_document(chat_id, summary_path, caption=f"{plan_id} summary")
+        client.send_document(chat_id, summary_path, caption=f"{trial_id} summary")
         if result_path.exists():
-            client.send_document(chat_id, result_path, caption=f"{plan_id} result")
+            client.send_document(chat_id, result_path, caption=f"{trial_id} result")
         elif codex_last_path.exists():
             client.send_document(
                 chat_id,
                 codex_last_path,
-                caption=f"{plan_id} result fallback",
+                caption=f"{trial_id} result fallback",
             )
         sent = True
     return sent

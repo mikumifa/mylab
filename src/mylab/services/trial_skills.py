@@ -8,13 +8,13 @@ from mylab.storage import read_text
 
 
 @dataclass(frozen=True)
-class PlanSkillProfile:
+class TrialSkillProfile:
     skill_name: str
-    plan_kind: str
+    trial_kind: str
     description: str
     flow: list[str]
     frontmatter_essence: list[str]
-    plan_body_rules: list[str]
+    trial_body_rules: list[str]
     reference_files: list[str]
     skill_path: Path
 
@@ -59,23 +59,23 @@ def _section_items(content: str, heading: str) -> list[str]:
     return [item for item in items if item]
 
 
-def load_plan_skill(skill_name: str) -> PlanSkillProfile:
+def load_trial_skill(skill_name: str) -> TrialSkillProfile:
     path = _skill_path(skill_name)
     content = read_text(path)
     meta = _parse_frontmatter(content)
-    return PlanSkillProfile(
+    return TrialSkillProfile(
         skill_name=meta.get("name", skill_name),
-        plan_kind=meta.get("plan_kind", skill_name),
+        trial_kind=meta.get("trial_kind", skill_name),
         description=meta.get("description", ""),
         flow=_section_items(content, "## Flow"),
         frontmatter_essence=_section_items(content, "## Frontmatter Essence"),
-        plan_body_rules=_section_items(content, "## Plan Body Rules"),
+        trial_body_rules=_section_items(content, "## Trial Body Rules"),
         reference_files=_section_items(content, "## Reference Files"),
         skill_path=path,
     )
 
 
-def infer_plan_skill(goal_text: str, feedback: str | None = None) -> PlanSkillProfile:
+def infer_trial_skill(goal_text: str, feedback: str | None = None) -> TrialSkillProfile:
     text = "\n".join(part for part in [goal_text, feedback or ""] if part).lower()
     parameter_markers = [
         "调参",
@@ -90,5 +90,5 @@ def infer_plan_skill(goal_text: str, feedback: str | None = None) -> PlanSkillPr
         "batch experiments",
     ]
     if any(marker in text for marker in parameter_markers):
-        return load_plan_skill("mylab-parameter-tuning")
-    return load_plan_skill("mylab-structure-tuning")
+        return load_trial_skill("mylab-parameter-tuning")
+    return load_trial_skill("mylab-structure-tuning")

@@ -26,8 +26,8 @@ from mylab.services import (
     NotificationClient,
     TelegramBotClient,
     bootstrap_run,
-    create_initial_plan,
-    create_iterated_plan,
+    create_initial_trial,
+    create_iterated_trial,
     interactive_feishu_setup,
     interactive_telegram_setup,
     format_repo_report,
@@ -48,9 +48,9 @@ from mylab.services import (
     write_summary,
 )
 from mylab.services.git_lifecycle import restore_original_branch
-from mylab.services.plans import lab_input_text
+from mylab.services.trials import lab_input_text
 from mylab.storage import ensure_dir, init_run_dirs, read_json, runs_root, write_json
-from mylab.storage.plan_layout import plan_paths
+from mylab.storage.trial_layout import trial_paths
 from mylab.storage.runs import load_manifest, planned_run_dirs, save_manifest
 from mylab.utils import slugify
 
@@ -110,15 +110,15 @@ def require_selected_run_dir() -> Path:
     return run_dir
 
 
-def _plan_branch_name(run_id: str, plan_id: str) -> str:
-    return f"mylab/{slugify(run_id, max_length=24)}/{plan_id}"
+def _trial_branch_name(run_id: str, trial_id: str) -> str:
+    return f"mylab/{slugify(run_id, max_length=24)}/{trial_id}"
 
 
-def _delete_plan_branch_if_present(run_dir: Path, plan_id: str) -> None:
+def _delete_trial_branch_if_present(run_dir: Path, trial_id: str) -> None:
     manifest = load_manifest(run_dir)
     repo_path = Path(manifest.repo_path)
     git = GitManager(repo_path, run_dir / "logs" / "git-lifecycle.jsonl")
-    branch = _plan_branch_name(manifest.run_id, plan_id)
+    branch = _trial_branch_name(manifest.run_id, trial_id)
     if not git.branch_exists(branch):
         return
     current = git.current_branch()
@@ -127,19 +127,19 @@ def _delete_plan_branch_if_present(run_dir: Path, plan_id: str) -> None:
     git.delete_branch(branch, force=True)
 
 
-def _remove_plan_from_queue(run_dir: Path, plan_id: str) -> None:
+def _remove_trial_from_queue(run_dir: Path, trial_id: str) -> None:
     queue = load_queue(run_dir)
     filtered = []
     for task in queue.tasks:
         payload = task.payload or {}
-        if payload.get("plan_id") == plan_id or payload.get("parent_plan_id") == plan_id:
+        if payload.get("trial_id") == trial_id or payload.get("parent_trial_id") == trial_id:
             continue
         filtered.append(task)
     save_queue(run_dir, QueueState(tasks=filtered))
 
 
-def _remove_plan_from_index(run_dir: Path, plan_id: str) -> None:
-    index_path = run_dir / "plans" / "index.jsonl"
+def _remove_trial_from_index(run_dir: Path, trial_id: str) -> None:
+    index_path = run_dir / "trials" / "index.jsonl"
     if not index_path.exists():
         return
     lines = index_path.read_text(encoding="utf-8").splitlines()
@@ -148,28 +148,28 @@ def _remove_plan_from_index(run_dir: Path, plan_id: str) -> None:
         if not line.strip():
             continue
         record = json.loads(line)
-        if record.get("plan_id") == plan_id:
+        if record.get("trial_id") == trial_id:
             continue
         kept.append(record)
-    write_jsonl_path = run_dir / "plans" / "index.jsonl"
+    write_jsonl_path = run_dir / "trials" / "index.jsonl"
     write_jsonl_path.write_text(
         "\n".join(json.dumps(item, ensure_ascii=True) for item in kept) + ("\n" if kept else ""),
         encoding="utf-8",
     )
-    markdown = ["# Plan Catalog", f"- run_id: {run_dir.name}"]
+    markdown = ["# Trial Catalog", f"- run_id: {run_dir.name}"]
     for record in kept:
         markdown.extend(
             [
                 "",
-                f"## {record['plan_id']}",
-                f"- plan_kind: {record.get('plan_kind', 'unknown')}",
+                f"## {record['trial_id']}",
+                f"- trial_kind: {record.get('trial_kind', 'unknown')}",
                 f"- status: {record['status']}",
                 f"- goal_summary: {record.get('goal_summary', '-')}",
-                f"- plan_path: {record.get('plan_path', '-')}",
+                f"- trial_path: {record.get('trial_path', '-')}",
                 f"- summary_path: {record.get('summary_path', '-')}",
             ]
         )
-    (run_dir / "plans" / "index.md").write_text(
+    (run_dir / "trials" / "index.md").write_text(
         "\n".join(markdown).rstrip() + "\n", encoding="utf-8"
     )
 
@@ -298,32 +298,32 @@ def build_parser() -> argparse.ArgumentParser:
     run_rm_cmd = run_subparsers.add_parser("rm", help="Remove a named run.")
     run_rm_cmd.add_argument("name", help="Run name to remove.")
 
-    plan_cmd = subparsers.add_parser(
-        "plan",
-        help="Manage plans inside the active run.",
+    trial_cmd = subparsers.add_parser(
+        "trial",
+        help="Manage trials inside the active run.",
         formatter_class=HELP_FORMATTER,
     )
-    plan_subparsers = plan_cmd.add_subparsers(dest="plan_command", required=True)
-    plan_ls_cmd = plan_subparsers.add_parser("ls", help="List plans in the active run.")
-    plan_ls_cmd.add_argument("--run", help="Optional run name override.")
-    plan_cat_cmd = plan_subparsers.add_parser("cat", help="Show one plan.")
-    plan_cat_cmd.add_argument("plan_id", help="Plan id to inspect.")
-    plan_cat_cmd.add_argument("--run", help="Optional run name override.")
-    plan_rm_cmd = plan_subparsers.add_parser("rm", help="Remove one plan and its local context.")
-    plan_rm_cmd.add_argument("plan_id", help="Plan id to remove.")
-    plan_rm_cmd.add_argument("--run", help="Optional run name override.")
+    trial_subparsers = trial_cmd.add_subparsers(dest="trial_command", required=True)
+    trial_ls_cmd = trial_subparsers.add_parser("ls", help="List trials in the active run.")
+    trial_ls_cmd.add_argument("--run", help="Optional run name override.")
+    trial_cat_cmd = trial_subparsers.add_parser("cat", help="Show one trial.")
+    trial_cat_cmd.add_argument("trial_id", help="Trial id to inspect.")
+    trial_cat_cmd.add_argument("--run", help="Optional run name override.")
+    trial_rm_cmd = trial_subparsers.add_parser("rm", help="Remove one trial and its local context.")
+    trial_rm_cmd.add_argument("trial_id", help="Trial id to remove.")
+    trial_rm_cmd.add_argument("--run", help="Optional run name override.")
 
     queue_iter_cmd = subparsers.add_parser(
         "queue-iteration",
         help="Compatibility command for manually injecting the next iteration.",
-        description="Compatibility-only command. Normal use should continue the run directly so each completed plan leads to the next plan.",
+        description="Compatibility-only command. Normal use should continue the run directly so each completed trial leads to the next trial.",
         formatter_class=HELP_FORMATTER,
     )
     queue_iter_cmd.add_argument(
         "--run-dir", required=True, type=Path, help="Existing run directory."
     )
     queue_iter_cmd.add_argument(
-        "--parent-plan", required=True, help="Parent plan id, for example plan-001."
+        "--parent-trial", required=True, help="Parent trial id, for example trial-001."
     )
     queue_iter_cmd.add_argument(
         "--feedback", required=True, help="Observed result or next-step instruction."
@@ -452,9 +452,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     create_cmd = tool_subparsers.add_parser(
-        "create-plan",
-        help="Create the first structured plan.",
-        description="Direct command to create a first plan without using the queued serial flow.",
+        "create-trial",
+        help="Create the first structured trial.",
+        description="Direct command to create a first trial without using the queued serial flow.",
         formatter_class=HELP_FORMATTER,
     )
     create_cmd.add_argument(
@@ -481,9 +481,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     iterate_cmd = tool_subparsers.add_parser(
-        "iterate-plan",
-        help="Create the next plan from prior results.",
-        description="Create a new plan directly from an existing run, parent plan, and feedback string.",
+        "iterate-trial",
+        help="Create the next trial from prior results.",
+        description="Create a new trial directly from an existing run, parent trial, and feedback string.",
         formatter_class=HELP_FORMATTER,
     )
     iterate_cmd.add_argument(
@@ -495,7 +495,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Observed result or instruction for the next iteration.",
     )
     iterate_cmd.add_argument(
-        "--parent-plan", required=True, help="Parent plan id, for example plan-001."
+        "--parent-trial", required=True, help="Parent trial id, for example trial-001."
     )
 
     format_cmd = tool_subparsers.add_parser(
@@ -516,14 +516,14 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_cmd = tool_subparsers.add_parser(
         "prepare-executor",
         help="Generate executor prompts and commands.",
-        description="Write the executor prompt and a reusable codex shell script for a plan.",
+        description="Write the executor prompt and a reusable codex shell script for a trial.",
         formatter_class=HELP_FORMATTER,
     )
     prepare_cmd.add_argument(
         "--run-dir", required=True, type=Path, help="Existing run directory."
     )
     prepare_cmd.add_argument(
-        "--plan-id", help="Plan id. Defaults to manifest.latest_plan_id."
+        "--trial-id", help="Trial id. Defaults to manifest.latest_trial_id."
     )
     prepare_cmd.add_argument(
         "--model", help="Optional Codex model override for the generated command."
@@ -531,15 +531,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_cmd = tool_subparsers.add_parser(
         "run-executor",
-        help="Run the prepared plan via codex.",
-        description="Directly execute a previously prepared Codex command for the selected plan.",
+        help="Run the prepared trial via codex.",
+        description="Directly execute a previously prepared Codex command for the selected trial.",
         formatter_class=HELP_FORMATTER,
     )
     run_cmd.add_argument(
         "--run-dir", required=True, type=Path, help="Existing run directory."
     )
     run_cmd.add_argument(
-        "--plan-id", help="Plan id. Defaults to manifest.latest_plan_id."
+        "--trial-id", help="Trial id. Defaults to manifest.latest_trial_id."
     )
     run_cmd.add_argument("--model", help="Optional Codex model override for execution.")
     run_cmd.add_argument(
@@ -557,7 +557,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_job_cmd.add_argument(
         "--run-dir", required=True, type=Path, help="Existing run directory."
     )
-    start_job_cmd.add_argument("--plan-id", required=True, help="Owning plan id.")
+    start_job_cmd.add_argument("--trial-id", required=True, help="Owning trial id.")
     start_job_cmd.add_argument("--name", help="Short job label.")
     start_job_cmd.add_argument("--cwd", help="Optional working directory override.")
     start_job_cmd.add_argument(
@@ -611,7 +611,7 @@ def build_parser() -> argparse.ArgumentParser:
     summary_cmd.add_argument(
         "--run-dir", required=True, type=Path, help="Existing run directory."
     )
-    summary_cmd.add_argument("--plan-id", required=True, help="Plan id to summarize.")
+    summary_cmd.add_argument("--trial-id", required=True, help="Trial id to summarize.")
     summary_cmd.add_argument(
         "--status",
         required=True,
@@ -762,7 +762,7 @@ def cmd_run_ls(args: argparse.Namespace) -> int:
         marker = "*" if run_dir.name == current else " "
         manifest = load_manifest(run_dir)
         print(
-            f"{marker} {run_dir.name}\tstatus={manifest.status}\tlatest_plan={manifest.latest_plan_id or '-'}\trepo={manifest.repo_path}"
+            f"{marker} {run_dir.name}\tstatus={manifest.status}\tlatest_trial={manifest.latest_trial_id or '-'}\trepo={manifest.repo_path}"
         )
     return 0
 
@@ -783,7 +783,7 @@ def cmd_run_rm(args: argparse.Namespace) -> int:
     return 0
 
 
-def _resolve_plan_run_dir(run_name: str | None) -> Path:
+def _resolve_trial_run_dir(run_name: str | None) -> Path:
     if run_name:
         run_dir = resolve_run_dir_by_name(run_name)
         if not (run_dir / "manifests" / "run.json").exists():
@@ -792,43 +792,43 @@ def _resolve_plan_run_dir(run_name: str | None) -> Path:
     return require_selected_run_dir()
 
 
-def cmd_plan_ls(args: argparse.Namespace) -> int:
-    run_dir = _resolve_plan_run_dir(getattr(args, "run", None))
-    plans_dir = run_dir / "plans"
-    for candidate in sorted(plans_dir.iterdir()):
-        if candidate.is_dir() and candidate.name.startswith("plan-"):
+def cmd_trial_ls(args: argparse.Namespace) -> int:
+    run_dir = _resolve_trial_run_dir(getattr(args, "run", None))
+    trials_dir = run_dir / "trials"
+    for candidate in sorted(trials_dir.iterdir()):
+        if candidate.is_dir() and candidate.name.startswith("trial-"):
             print(candidate.name)
     return 0
 
 
-def cmd_plan_cat(args: argparse.Namespace) -> int:
-    run_dir = _resolve_plan_run_dir(getattr(args, "run", None))
-    paths = plan_paths(run_dir, args.plan_id)
-    if not paths.plan.exists():
-        raise ValueError(f"plan `{args.plan_id}` does not exist in run `{run_dir.name}`")
-    print(paths.plan.read_text(encoding="utf-8"))
+def cmd_trial_cat(args: argparse.Namespace) -> int:
+    run_dir = _resolve_trial_run_dir(getattr(args, "run", None))
+    paths = trial_paths(run_dir, args.trial_id)
+    if not paths.trial.exists():
+        raise ValueError(f"trial `{args.trial_id}` does not exist in run `{run_dir.name}`")
+    print(paths.trial.read_text(encoding="utf-8"))
     return 0
 
 
-def cmd_plan_rm(args: argparse.Namespace) -> int:
-    run_dir = _resolve_plan_run_dir(getattr(args, "run", None))
-    paths = plan_paths(run_dir, args.plan_id)
+def cmd_trial_rm(args: argparse.Namespace) -> int:
+    run_dir = _resolve_trial_run_dir(getattr(args, "run", None))
+    paths = trial_paths(run_dir, args.trial_id)
     if not paths.root.exists():
-        raise ValueError(f"plan `{args.plan_id}` does not exist in run `{run_dir.name}`")
-    _delete_plan_branch_if_present(run_dir, args.plan_id)
-    _remove_plan_from_queue(run_dir, args.plan_id)
-    _remove_plan_from_index(run_dir, args.plan_id)
+        raise ValueError(f"trial `{args.trial_id}` does not exist in run `{run_dir.name}`")
+    _delete_trial_branch_if_present(run_dir, args.trial_id)
+    _remove_trial_from_queue(run_dir, args.trial_id)
+    _remove_trial_from_index(run_dir, args.trial_id)
     shutil.rmtree(paths.root)
     manifest = load_manifest(run_dir)
-    if manifest.latest_plan_id == args.plan_id:
+    if manifest.latest_trial_id == args.trial_id:
         remaining = [
             item.name
-            for item in sorted((run_dir / "plans").iterdir())
-            if item.is_dir() and item.name.startswith("plan-")
+            for item in sorted((run_dir / "trials").iterdir())
+            if item.is_dir() and item.name.startswith("trial-")
         ]
-        manifest.latest_plan_id = remaining[-1] if remaining else None
+        manifest.latest_trial_id = remaining[-1] if remaining else None
         save_manifest(init_run_dirs(run_dir), manifest)
-    print(args.plan_id)
+    print(args.trial_id)
     return 0
 
 
@@ -860,26 +860,26 @@ def ensure_manifest_or_bootstrap(args: argparse.Namespace):
     return paths, manifest
 
 
-def cmd_create_plan(args: argparse.Namespace) -> int:
+def cmd_create_trial(args: argparse.Namespace) -> int:
     paths, manifest = ensure_manifest_or_bootstrap(args)
     configure_logging(paths.logs)
-    print(create_initial_plan(paths, manifest))
+    print(create_initial_trial(paths, manifest))
     return 0
 
 
-def cmd_iterate_plan(args: argparse.Namespace) -> int:
+def cmd_iterate_trial(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.expanduser().resolve()
     paths = init_run_dirs(run_dir)
     configure_logging(paths.logs)
     manifest = load_manifest(run_dir)
-    print(create_iterated_plan(paths, manifest, args.parent_plan, args.feedback))
+    print(create_iterated_trial(paths, manifest, args.parent_trial, args.feedback))
     return 0
 
 
 def cmd_queue_iteration(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.expanduser().resolve()
     configure_logging(run_dir / "logs")
-    enqueue_iteration_pipeline(run_dir, args.parent_plan, args.feedback, args.model)
+    enqueue_iteration_pipeline(run_dir, args.parent_trial, args.feedback, args.model)
     print(run_dir / "queue" / "pipeline.json")
     return 0
 
@@ -904,10 +904,10 @@ def cmd_prepare_executor(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.expanduser().resolve()
     configure_logging(run_dir / "logs")
     manifest = load_manifest(run_dir)
-    plan_id = args.plan_id or manifest.latest_plan_id
-    if not plan_id:
-        raise ValueError("missing plan id and manifest.latest_plan_id is empty")
-    print(prepare_executor(run_dir, plan_id, args.model))
+    trial_id = args.trial_id or manifest.latest_trial_id
+    if not trial_id:
+        raise ValueError("missing trial id and manifest.latest_trial_id is empty")
+    print(prepare_executor(run_dir, trial_id, args.model))
     return 0
 
 
@@ -916,11 +916,11 @@ def cmd_run_executor(args: argparse.Namespace) -> int:
     configure_logging(run_dir / "logs")
     print_codex_preflight(args.model)
     manifest = load_manifest(run_dir)
-    plan_id = args.plan_id or manifest.latest_plan_id
-    if not plan_id:
-        raise ValueError("missing plan id and manifest.latest_plan_id is empty")
+    trial_id = args.trial_id or manifest.latest_trial_id
+    if not trial_id:
+        raise ValueError("missing trial id and manifest.latest_trial_id is empty")
     try:
-        print(run_executor(run_dir, plan_id, args.model, args.full_auto))
+        print(run_executor(run_dir, trial_id, args.model, args.full_auto))
     finally:
         manifest = load_manifest(run_dir)
         if manifest.work_branch and manifest.original_branch:
@@ -942,7 +942,7 @@ def cmd_start_job(args: argparse.Namespace) -> int:
         json.dumps(
             start_job(
                 run_dir,
-                args.plan_id,
+                args.trial_id,
                 job_command,
                 name=args.name,
                 cwd=args.cwd,
@@ -994,7 +994,7 @@ def cmd_write_summary(args: argparse.Namespace) -> int:
     print(
         write_summary(
             args.run_dir.expanduser().resolve(),
-            args.plan_id,
+            args.trial_id,
             args.status,
             args.outcome,
             args.evidence,
@@ -1123,8 +1123,8 @@ def main(argv: list[str] | None = None) -> int:
     tool_commands = {
         "init-run": cmd_init_run,
         "poll-run": cmd_poll_run,
-        "create-plan": cmd_create_plan,
-        "iterate-plan": cmd_iterate_plan,
+        "create-trial": cmd_create_trial,
+        "iterate-trial": cmd_iterate_trial,
         "format-repo": cmd_format_repo,
         "init-config": cmd_init_config,
         "prepare-executor": cmd_prepare_executor,
@@ -1143,7 +1143,7 @@ def main(argv: list[str] | None = None) -> int:
             if (candidate / "manifests" / "run.json").exists():
                 interrupt_run_dir = candidate
         if args.command == "tool":
-            if args.tool_command in {"run-executor", "poll-run", "prepare-executor", "write-summary", "iterate-plan", "start-job", "wait-job", "tail-job"}:
+            if args.tool_command in {"run-executor", "poll-run", "prepare-executor", "write-summary", "iterate-trial", "start-job", "wait-job", "tail-job"}:
                 interrupt_run_dir = args.run_dir.expanduser().resolve()
             return tool_commands[args.tool_command](args)
         if args.command == "run":
@@ -1153,13 +1153,13 @@ def main(argv: list[str] | None = None) -> int:
                 "rm": cmd_run_rm,
             }
             return run_commands[args.run_command](args)
-        if args.command == "plan":
-            plan_commands = {
-                "ls": cmd_plan_ls,
-                "cat": cmd_plan_cat,
-                "rm": cmd_plan_rm,
+        if args.command == "trial":
+            trial_commands = {
+                "ls": cmd_trial_ls,
+                "cat": cmd_trial_cat,
+                "rm": cmd_trial_rm,
             }
-            return plan_commands[args.plan_command](args)
+            return trial_commands[args.trial_command](args)
         if args.command == "bot":
             if args.bot_command == "test":
                 return cmd_bot_test(args)

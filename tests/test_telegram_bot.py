@@ -19,7 +19,7 @@ from mylab.services.telegram_bot import (
     load_telegram_settings,
     push_summary_to_telegram,
 )
-from mylab.storage.plan_layout import plan_paths
+from mylab.storage.trial_layout import trial_paths
 
 
 class FakeTelegramBot(TelegramBotClient):
@@ -249,12 +249,12 @@ class TelegramBotTest(unittest.TestCase):
                 ),
                 (
                     42,
-                    "Next guidance saved. Use /all <text> for guidance that should apply to future plans.",
+                    "Next guidance saved. Use /all <text> for guidance that should apply to future trials.",
                     None,
                 ),
                 (
                     42,
-                    "All-plan guidance saved. It will be carried into future plans.",
+                    "All-trial guidance saved. It will be carried into future trials.",
                     None,
                 ),
                 (42, "File saved: 13-notes.txt", None),
@@ -276,14 +276,14 @@ class TelegramBotTest(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
-        scoped_paths = plan_paths(self.root / "run", "plan-001", ensure=True)
+        scoped_paths = trial_paths(self.root / "run", "trial-001", ensure=True)
         summary_path = scoped_paths.summary
         result_path = scoped_paths.result
         summary_content = "\n".join(
             [
                 "# Summary Metadata",
                 "- run_id: run",
-                "- plan_id: plan-001",
+                "- trial_id: trial-001",
                 "",
                 "# Outcome",
                 "Validation accuracy reached 91.2%.",
@@ -292,7 +292,7 @@ class TelegramBotTest(unittest.TestCase):
                 "1. results/metrics.json",
                 "",
                 "# Artifacts",
-                "1. plans/plan-001/summary.md",
+                "1. trials/trial-001/summary.md",
                 "",
                 "# Next Iteration",
                 "1. Compare against the lighter baseline.",
@@ -329,7 +329,7 @@ class TelegramBotTest(unittest.TestCase):
             telegram_bot.TelegramBotClient = lambda settings: fake_bot
             sent = push_summary_to_telegram(
                 run_dir,
-                "plan-001",
+                "trial-001",
                 summary_path,
                 summary_content=summary_content,
             )
@@ -345,8 +345,8 @@ class TelegramBotTest(unittest.TestCase):
         self.assertEqual(
             fake_bot.sent_documents,
             [
-                (42, "summary.md", "plan-001 summary"),
-                (42, "result.md", "plan-001 result"),
+                (42, "summary.md", "trial-001 summary"),
+                (42, "result.md", "trial-001 result"),
             ],
         )
 

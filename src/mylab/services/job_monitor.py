@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from mylab.storage import ensure_dir, read_json, write_json
-from mylab.storage.plan_layout import plan_paths
+from mylab.storage.trial_layout import trial_paths
 from mylab.utils import shell_join, slugify, utc_now
 
 
@@ -17,16 +17,16 @@ DEFAULT_JOB_POLL_SECONDS = 10
 DEFAULT_JOB_TAIL_LINES = 20
 
 
-def _job_id(plan_id: str, name: str | None) -> str:
+def _job_id(trial_id: str, name: str | None) -> str:
     stamp = utc_now().replace("-", "").replace(":", "").replace("T", "t")
     label = slugify(name or "job", max_length=24)
-    return f"{plan_id}-{label}-{stamp.lower()}"
+    return f"{trial_id}-{label}-{stamp.lower()}"
 
 
-def _job_record_path(run_dir: Path, job_id: str, plan_id: str | None = None) -> Path:
-    if plan_id:
-        return plan_paths(run_dir, plan_id, ensure=True).jobs / f"{job_id}.json"
-    matches = sorted(run_dir.glob(f"plans/*/jobs/{job_id}.json"))
+def _job_record_path(run_dir: Path, job_id: str, trial_id: str | None = None) -> Path:
+    if trial_id:
+        return trial_paths(run_dir, trial_id, ensure=True).jobs / f"{job_id}.json"
+    matches = sorted(run_dir.glob(f"trials/*/jobs/{job_id}.json"))
     if matches:
         return matches[-1]
     return run_dir / "jobs" / f"{job_id}.json"
@@ -77,7 +77,7 @@ def get_job_status(run_dir: Path, job_id: str) -> dict[str, Any]:
         record["status"] = "unknown"
     return {
         "job_id": record["job_id"],
-        "plan_id": record["plan_id"],
+        "trial_id": record["trial_id"],
         "name": record["name"],
         "status": record["status"],
         "pid": record["pid"],
@@ -93,15 +93,15 @@ def get_job_status(run_dir: Path, job_id: str) -> dict[str, Any]:
 
 def start_job(
     run_dir: Path,
-    plan_id: str,
+    trial_id: str,
     command: str,
     *,
     name: str | None = None,
     cwd: str | None = None,
     shell: str = "/bin/bash",
 ) -> dict[str, Any]:
-    scoped_paths = plan_paths(run_dir, plan_id, ensure=True)
-    job_id = _job_id(plan_id, name)
+    scoped_paths = trial_paths(run_dir, trial_id, ensure=True)
+    job_id = _job_id(trial_id, name)
     resolved_cwd = str(Path(cwd).expanduser().resolve()) if cwd else str(run_dir)
     stdout_path = scoped_paths.logs / f"{job_id}.stdout.log"
     stderr_path = scoped_paths.logs / f"{job_id}.stderr.log"
@@ -146,7 +146,7 @@ def start_job(
     process.returncode = 0
     record = {
         "job_id": job_id,
-        "plan_id": plan_id,
+        "trial_id": trial_id,
         "name": name or "job",
         "status": "running",
         "pid": pid,
@@ -157,12 +157,12 @@ def start_job(
         "stderr_path": str(stderr_path),
         "exit_code_path": str(exit_code_path),
         "finished_at_path": str(finished_at_path),
-        "record_path": str(_job_record_path(run_dir, job_id, plan_id)),
+        "record_path": str(_job_record_path(run_dir, job_id, trial_id)),
         "started_at": utc_now(),
         "finished_at": None,
         "exit_code": None,
     }
-    write_json(_job_record_path(run_dir, job_id, plan_id), record)
+    write_json(_job_record_path(run_dir, job_id, trial_id), record)
     return {
         "job_id": job_id,
         "status": "running",
