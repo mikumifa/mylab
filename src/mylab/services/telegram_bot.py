@@ -24,8 +24,8 @@ from mylab.storage.plan_layout import plan_paths
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
-STEP_SCOPE = "step"
-RUN_SCOPE = "run"
+NEXT_SCOPE = "next"
+ALL_SCOPE = "all"
 
 
 def _read_config(config_path: Path | None = None) -> dict[str, object]:
@@ -323,18 +323,26 @@ def _sanitize_filename(name: str) -> str:
 
 
 def load_feedback_context(limit: int | None = None) -> str:
-    return render_feedback_context(limit=limit, scopes={STEP_SCOPE, RUN_SCOPE})
+    return render_feedback_context(limit=limit, scopes={NEXT_SCOPE, ALL_SCOPE})
 
 
 def _record_scope(record: dict[str, object]) -> str:
     scope = record.get("scope")
-    if scope in {STEP_SCOPE, RUN_SCOPE}:
+    if scope in {NEXT_SCOPE, ALL_SCOPE}:
         return str(scope)
-    return RUN_SCOPE if record.get("kind") == "document" else STEP_SCOPE
+    return ALL_SCOPE if record.get("kind") == "document" else NEXT_SCOPE
 
 
 def load_persistent_feedback_context(limit: int | None = None) -> str:
-    return render_feedback_context(limit=limit, scopes={RUN_SCOPE})
+    return render_feedback_context(limit=limit, scopes={ALL_SCOPE})
+
+
+def load_next_guidance_context(limit: int | None = None) -> str:
+    return render_feedback_context(limit=limit, scopes={NEXT_SCOPE})
+
+
+def load_all_guidance_context(limit: int | None = None) -> str:
+    return render_feedback_context(limit=limit, scopes={ALL_SCOPE})
 
 
 def render_feedback_context(
@@ -380,7 +388,7 @@ def feedback_record_count(scopes: set[str] | None = None) -> int:
 
 
 def consume_feedback_since(cursor: int) -> tuple[str | None, int]:
-    records = load_feedback_records(scopes={STEP_SCOPE})
+    records = load_feedback_records(scopes={NEXT_SCOPE})
     useful = records[max(cursor, 0) :]
     if not useful:
         return None, len(records)
@@ -554,7 +562,7 @@ class TelegramBotClient:
     def _handle_help(self, chat_id: int) -> None:
         self.send_message(
             chat_id,
-            "Supported commands: /test, /on, /off, /continue, /step <text>, /run <text>",
+            "Supported commands: /test, /on, /off, /continue, /next <text>, /all <text>",
         )
 
     def _handle_command(self, chat_id: int, text: str, message_id: int) -> None:
@@ -596,42 +604,44 @@ class TelegramBotClient:
                 "summary, result report, repository shared asset, and preserved "
                 "execution evidence.",
                 message_id,
-                scope=STEP_SCOPE,
+                scope=NEXT_SCOPE,
             )
             self.send_message(
                 chat_id,
                 "Queued the next iteration using the latest run context.",
             )
             return
-        if text.startswith("/step "):
-            payload = text[6:].strip()
+        if text.startswith("/next ") or text.startswith("/step "):
+            prefix = "/next " if text.startswith("/next ") else "/step "
+            payload = text[len(prefix) :].strip()
             if not payload:
-                self.send_message(chat_id, "Usage: /step <instruction>")
+                self.send_message(chat_id, "Usage: /next <instruction>")
                 return
-            self._save_text_feedback(chat_id, payload, message_id, scope=STEP_SCOPE)
+            self._save_text_feedback(chat_id, payload, message_id, scope=NEXT_SCOPE)
             self.send_message(
                 chat_id,
-                "Step feedback saved. It will be injected into the next iteration only.",
+                "Next guidance saved. It will be injected into the next plan only.",
             )
             return
-        if text.startswith("/run "):
-            payload = text[5:].strip()
+        if text.startswith("/all ") or text.startswith("/run "):
+            prefix = "/all " if text.startswith("/all ") else "/run "
+            payload = text[len(prefix) :].strip()
             if not payload:
-                self.send_message(chat_id, "Usage: /run <guidance>")
+                self.send_message(chat_id, "Usage: /all <guidance>")
                 return
-            self._save_text_feedback(chat_id, payload, message_id, scope=RUN_SCOPE)
+            self._save_text_feedback(chat_id, payload, message_id, scope=ALL_SCOPE)
             self.send_message(
                 chat_id,
-                "Run guidance saved. It will be carried into future iterations.",
+                "All-plan guidance saved. It will be carried into future plans.",
             )
             return
         self._handle_help(chat_id)
 
     def _handle_text(self, chat_id: int, text: str, message_id: int) -> None:
-        self._save_text_feedback(chat_id, text, message_id, scope=STEP_SCOPE)
+        self._save_text_feedback(chat_id, text, message_id, scope=NEXT_SCOPE)
         self.send_message(
             chat_id,
-            "Feedback saved for the next iteration. Use /run <text> for persistent run guidance.",
+            "Next guidance saved. Use /all <text> for guidance that should apply to future plans.",
         )
 
     def _handle_document(
@@ -653,7 +663,7 @@ class TelegramBotClient:
             {
                 "ts": utc_now(),
                 "kind": "document",
-                "scope": RUN_SCOPE,
+                "scope": ALL_SCOPE,
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "telegram_file_path": file_path,
@@ -741,8 +751,8 @@ def write_sample_config(path: Path = CONFIG_FILE) -> Path:
             "",
             "# Telegram usage:",
             "# /continue    -> continue the next iteration from current context",
-            "# /step <text> -> only the next iteration",
-            "# /run <text>  -> persistent guidance for the whole run",
+            "# /next <text> -> only the next plan",
+            "# /all <text>  -> guidance for all later plans",
             "# /on | /off   -> toggle notifications",
         ]
     )
@@ -760,7 +770,7 @@ def _summary_message(summary_content: str, *, run_id: str, plan_id: str) -> str:
         parts.append(f"Outcome:\n{outcome}")
     if next_iteration:
         parts.append(f"Next Iteration:\n{next_iteration}")
-    parts.append("Reply /continue to proceed, or /step <text> to guide the next iteration.")
+    parts.append("Reply /continue to proceed, or /next <text> to guide the next plan.")
     return "\n\n".join(parts)[:4000]
 
 

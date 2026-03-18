@@ -179,25 +179,28 @@ def _write_plan_index(run_dir: Path, records: list[dict[str, str]]) -> None:
     lines = [json.dumps(record, ensure_ascii=True) for record in records]
     write_text(jsonl_path, "\n".join(lines) if lines else "")
     markdown_lines = [
-        "# Plan Index",
+        "# Plan Catalog",
         f"- run_id: {run_dir.name}",
         f"- updated_at: {utc_now()}",
         "",
-        "| plan_id | kind | parent | status | plan_path | summary_path | short_summary |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for record in records:
-        short_summary = " ".join(record["short_summary"].split()).replace("|", "/")
-        markdown_lines.append(
-            "| {plan_id} | {plan_kind} | {parent_plan_id} | {status} | {plan_path} | {summary_path} | {short_summary} |".format(
-                plan_id=record["plan_id"],
-                plan_kind=record.get("plan_kind", "unknown"),
-                parent_plan_id=record["parent_plan_id"] or "-",
-                status=record["status"],
-                plan_path=record.get("plan_path", "-").replace("|", "/"),
-                summary_path=record.get("summary_path", "-").replace("|", "/"),
-                short_summary=short_summary,
-            )
+        markdown_lines.extend(
+            [
+                f"## {record['plan_id']}",
+                f"- plan_kind: {record.get('plan_kind', 'unknown')}",
+                f"- status: {record['status']}",
+                f"- goal_summary: {record.get('goal_summary', '-')}",
+                f"- plan_essence: {record.get('plan_essence', '-')}",
+                f"- decision_focus: {record.get('decision_focus', '-')}",
+                f"- expected_signal: {record.get('expected_signal', '-')}",
+                f"- code_checkpoint: {record.get('code_checkpoint', '-')}",
+                f"- code_checkpoint_ref: {record.get('code_checkpoint_ref', '-')}",
+                f"- plan_path: {record.get('plan_path', '-')}",
+                f"- summary_path: {record.get('summary_path', '-')}",
+                f"- short_summary: {record.get('short_summary', '-')}",
+                "",
+            ]
         )
     write_text(markdown_path, "\n".join(markdown_lines))
 
@@ -211,6 +214,12 @@ def upsert_plan_index_record(
     status: str,
     short_summary: str,
     artifacts: list[str],
+    goal_summary: str | None = None,
+    plan_essence: str | None = None,
+    decision_focus: str | None = None,
+    expected_signal: str | None = None,
+    code_checkpoint: str | None = None,
+    code_checkpoint_ref: str | None = None,
 ) -> None:
     records = _load_plan_index_records(run_dir)
     by_plan = {record["plan_id"]: record for record in records}
@@ -222,6 +231,24 @@ def upsert_plan_index_record(
         "plan_kind": plan_kind or previous.get("plan_kind", "unknown"),
         "status": status,
         "short_summary": " ".join(short_summary.split()),
+        "goal_summary": " ".join(
+            (goal_summary or previous.get("goal_summary", "")).split()
+        ),
+        "plan_essence": " ".join(
+            (plan_essence or previous.get("plan_essence", "")).split()
+        ),
+        "decision_focus": " ".join(
+            (decision_focus or previous.get("decision_focus", "")).split()
+        ),
+        "expected_signal": " ".join(
+            (expected_signal or previous.get("expected_signal", "")).split()
+        ),
+        "code_checkpoint": " ".join(
+            (code_checkpoint or previous.get("code_checkpoint", "")).split()
+        ),
+        "code_checkpoint_ref": " ".join(
+            (code_checkpoint_ref or previous.get("code_checkpoint_ref", "")).split()
+        ),
         "plan_path": relative_to_run(paths.plan, run_dir),
         "summary_path": relative_to_run(paths.summary, run_dir),
         "artifacts": ", ".join(" ".join(item.split()) for item in artifacts),
@@ -239,3 +266,24 @@ def upsert_plan_index_record(
             "status": status,
         },
     )
+
+
+def render_plan_catalog(run_dir: Path) -> str:
+    records = _load_plan_index_records(run_dir)
+    if not records:
+        return "(no prior plans yet)"
+    lines = ["Available plan key info:"]
+    for record in records:
+        lines.extend(
+            [
+                f"- {record['plan_id']} [{record.get('plan_kind', 'unknown')}] status={record['status']}",
+                f"  goal_summary: {record.get('goal_summary', '-') or '-'}",
+                f"  plan_essence: {record.get('plan_essence', '-') or '-'}",
+                f"  decision_focus: {record.get('decision_focus', '-') or '-'}",
+                f"  expected_signal: {record.get('expected_signal', '-') or '-'}",
+                f"  code_checkpoint: {record.get('code_checkpoint', '-') or '-'} ({record.get('code_checkpoint_ref', '-') or '-'})",
+                f"  plan_path: {record.get('plan_path', '-') or '-'}",
+                f"  summary_path: {record.get('summary_path', '-') or '-'}",
+            ]
+        )
+    return "\n".join(lines)

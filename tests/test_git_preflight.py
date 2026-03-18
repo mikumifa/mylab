@@ -99,8 +99,24 @@ class GitPreflightTest(unittest.TestCase):
         structure_skill_path = (
             self.repo / ".codex" / "skills" / "mylab-structure-tuning" / "SKILL.md"
         )
+        structure_template_path = (
+            self.repo
+            / ".codex"
+            / "skills"
+            / "mylab-structure-tuning"
+            / "templates"
+            / "plan.template.md"
+        )
         parameter_skill_path = (
             self.repo / ".codex" / "skills" / "mylab-parameter-tuning" / "SKILL.md"
+        )
+        parameter_template_path = (
+            self.repo
+            / ".codex"
+            / "skills"
+            / "mylab-parameter-tuning"
+            / "templates"
+            / "plan.template.md"
         )
         reference_path = (
             self.repo
@@ -116,7 +132,9 @@ class GitPreflightTest(unittest.TestCase):
         self.assertIn("/.mylab_runs/", gitignore)
         self.assertTrue(skill_path.exists())
         self.assertTrue(structure_skill_path.exists())
+        self.assertTrue(structure_template_path.exists())
         self.assertTrue(parameter_skill_path.exists())
+        self.assertTrue(parameter_template_path.exists())
         self.assertTrue(reference_path.exists())
         self.assertIn("mylab tool start-job", skill_path.read_text(encoding="utf-8"))
         self.assertIn("## Frontmatter Essence", structure_skill_path.read_text(encoding="utf-8"))

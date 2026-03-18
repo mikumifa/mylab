@@ -20,7 +20,6 @@ PLAN_HEADINGS = [
     "# Investigation Questions",
     "# Execution Plan",
     "# Deliverables",
-    "# Referenced Files",
     "# Result Collection Rules",
 ]
 

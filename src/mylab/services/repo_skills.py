@@ -111,16 +111,25 @@ cmd_start_job(Namespace(...))
 That path exists only as a compatibility fallback. The normal interface is the CLI.
 """
 
-_STRUCTURE_TUNING_SKILL = (ROOT / ".codex" / "skills" / "mylab-structure-tuning" / "SKILL.md").read_text(encoding="utf-8")
-_PARAMETER_TUNING_SKILL = (ROOT / ".codex" / "skills" / "mylab-parameter-tuning" / "SKILL.md").read_text(encoding="utf-8")
-
-
 def _write_if_missing(path: Path, content: str) -> bool:
     if path.exists():
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     return True
+
+
+def _local_skill_files(skill_name: str) -> dict[Path, str]:
+    source_root = ROOT / ".codex" / "skills" / skill_name
+    files: dict[Path, str] = {}
+    for path in sorted(source_root.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(source_root)
+        files[Path(".codex") / "skills" / skill_name / relative] = path.read_text(
+            encoding="utf-8"
+        )
+    return files
 
 
 def ensure_repo_skills_installed(repo_path: Path) -> list[str]:
@@ -134,9 +143,11 @@ def ensure_repo_skills_installed(repo_path: Path) -> list[str]:
         / "mylab-job-monitor"
         / "references"
         / "complete-example.md": _JOB_MONITOR_REFERENCE,
-        repo_path / ".codex" / "skills" / "mylab-structure-tuning" / "SKILL.md": _STRUCTURE_TUNING_SKILL,
-        repo_path / ".codex" / "skills" / "mylab-parameter-tuning" / "SKILL.md": _PARAMETER_TUNING_SKILL,
     }
+    for relative, content in _local_skill_files("mylab-structure-tuning").items():
+        files[repo_path / relative] = content
+    for relative, content in _local_skill_files("mylab-parameter-tuning").items():
+        files[repo_path / relative] = content
     for path, content in files.items():
         if _write_if_missing(path, content):
             logger.info("Installed repository skill file {}", path)

@@ -6,12 +6,17 @@ from pathlib import Path
 from mylab.config import PLAN_HEADINGS, RUNS_ENV_VAR
 from mylab.domain import RunManifest, RunPaths
 from mylab.logging import logger
-from mylab.services.assets import load_repo_asset, upsert_plan_index_record
+from mylab.services.assets import (
+    load_repo_asset,
+    upsert_plan_index_record,
+)
 from mylab.services.git_lifecycle import prepare_repo_for_run
 from mylab.services.notifications import NotificationSettings
 from mylab.services.plan_skills import PlanSkillProfile, infer_plan_skill
 from mylab.services.telegram_bot import (
+    load_all_guidance_context,
     load_feedback_context,
+    load_next_guidance_context,
     load_persistent_feedback_context,
     load_telegram_settings,
 )
@@ -96,16 +101,22 @@ def plan_frontmatter_essence(
             "plan_essence": f"Run a comparable parameter batch for: {headline[:160]}",
             "decision_focus": brief_feedback[:160]
             or "Use batch comparison to narrow the next search region.",
-            "expected_signal": "A ranked comparison over parameter combinations with a clear next search recommendation.",
-            "next_iteration_hook": "Use the ranking result to design the next parameter region or combination set.",
+            "expected_signal": "A ranked comparison over parameter combinations for this batch.",
         }
     return {
         "plan_essence": f"Test a structural idea end-to-end for: {headline[:160]}",
         "decision_focus": brief_feedback[:160]
         or "Use implementation, training, evaluation, and analysis to decide the next structural move.",
-        "expected_signal": "A structural conclusion grounded in implementation delta, train behavior, eval results, and analysis.",
-        "next_iteration_hook": "Use the analysis to propose the next architecture or module combination.",
+        "expected_signal": "A structural conclusion for this round grounded in implementation delta, train behavior, eval results, and analysis.",
     }
+
+
+def plan_code_checkpoint(manifest: RunManifest) -> tuple[str, str]:
+    if manifest.latest_work_commit and manifest.work_branch:
+        return manifest.latest_work_commit, manifest.work_branch
+    if manifest.original_head_commit and manifest.source_branch:
+        return manifest.original_head_commit, manifest.source_branch
+    return "unknown", manifest.source_branch
 
 
 def profile_questions(
@@ -130,20 +141,25 @@ def profile_steps(
             "Generate the concrete parameter combinations for this round and save them as reusable run inputs under the current plan directory.",
             "Run the batch with preserved raw logs and keep every trial output under the run directory.",
             "Collect the batch results into a comparable table or machine-readable summary.",
-            "Compare and rank the combinations, then state which search region should be explored next.",
+            "Compare and rank the combinations, and state what this batch established in the current round.",
         ]
         if feedback:
-            steps.insert(1, f"Apply this tuning feedback when shaping the batch: {feedback}")
+            steps.insert(
+                1, f"Apply this tuning feedback when shaping the batch: {feedback}"
+            )
         return steps
     steps = [
         f"Checkout the source branch and inspect the tracked repository at {repo_path}.",
         "Implement the current structural idea as the smallest defensible code delta for this round.",
         "Train the changed system while preserving raw logs and intermediate outputs.",
         "Run evaluation that is comparable with the current baseline or parent plan.",
-        "Analyze the outcome and extract the next structural design move for the next iteration.",
+        "Analyze the outcome and record the structural conclusion for this round.",
     ]
     if feedback:
-        steps.insert(1, f"Use this feedback to refine the current design idea before implementation: {feedback}")
+        steps.insert(
+            1,
+            f"Use this feedback to refine the current design idea before implementation: {feedback}",
+        )
     return steps
 
 
@@ -152,28 +168,13 @@ def profile_deliverables(profile: PlanSkillProfile, plan_id: str) -> list[str]:
         return [
             f"Parameter batch specification for {plan_id}.",
             f"Collected comparison table or aggregated result artifact for {plan_id}.",
-            f"Recommendation for the next parameter region based on ranked evidence.",
+            f"Ranking conclusion for the current batch of {plan_id}.",
         ]
     return [
         f"Structural implementation delta and runnable scripts for {plan_id}.",
         f"Train plus eval evidence bundle for {plan_id}.",
-        f"Design conclusion and next structural idea for {plan_id}.",
+        f"Design conclusion for the current round of {plan_id}.",
     ]
-
-
-def _reference_paths_for_plan(run_root: Path, plan_id: str) -> dict[str, str]:
-    paths = plan_paths(run_root, plan_id)
-    return {
-        "shared_asset": relative_to_run(paths.references / "shared-asset.md", run_root),
-        "persistent_feedback": relative_to_run(
-            paths.references / "persistent-feedback.md", run_root
-        ),
-        "recent_feedback": relative_to_run(
-            paths.references / "recent-feedback.md", run_root
-        ),
-        "plan_skill": relative_to_run(paths.references / "plan-skill.md", run_root),
-        "parent_plan": relative_to_run(paths.references / "parent-plan.md", run_root),
-    }
 
 
 def _write_plan_references(
@@ -182,24 +183,92 @@ def _write_plan_references(
     plan_id: str,
     plan_skill_content: str,
     shared_asset: str,
-    persistent_feedback: str,
-    recent_feedback: str,
-    parent_plan_content: str | None = None,
+    all_guidance: str,
+    next_guidance: str,
 ) -> dict[str, Path]:
     paths = plan_paths(run_root, plan_id, ensure=True)
     refs = {
+        "design": paths.references / "design.md",
+        "experiment": paths.references / "experiment.md",
+        "analysis": paths.references / "analysis.md",
+        "conclusion": paths.references / "conclusion.md",
         "plan_skill": paths.references / "plan-skill.md",
         "shared_asset": paths.references / "shared-asset.md",
-        "persistent_feedback": paths.references / "persistent-feedback.md",
-        "recent_feedback": paths.references / "recent-feedback.md",
+        "all_guidance": paths.references / "all-guidance.md",
+        "next_guidance": paths.references / "next-guidance.md",
     }
+    write_text(
+        refs["design"],
+        "\n".join(
+            [
+                "# Design Detail",
+                "",
+                "## Hypothesis",
+                "(fill in)",
+                "",
+                "## Architecture",
+                "(fill in)",
+                "",
+                "## Parameters",
+                "(fill in as a dict-like block)",
+            ]
+        ),
+    )
+    write_text(
+        refs["experiment"],
+        "\n".join(
+            [
+                "# Experiment Detail",
+                "",
+                "## Dataset",
+                "(fill in)",
+                "",
+                "## Environment",
+                "(fill in)",
+                "",
+                "## Artifacts Path",
+                "(fill in concrete paths)",
+            ]
+        ),
+    )
+    write_text(
+        refs["analysis"],
+        "\n".join(
+            [
+                "# Analysis Detail",
+                "",
+                "## Metrics",
+                "(fill in)",
+                "",
+                "## Observations",
+                "(fill in)",
+                "",
+                "## Deep Dive",
+                "Put detailed anomaly or success-cause analysis here.",
+            ]
+        ),
+    )
+    write_text(
+        refs["conclusion"],
+        "\n".join(
+            [
+                "# Conclusion Detail",
+                "",
+                "## Hypothesis Verdict",
+                "(True / False / Partial)",
+                "",
+                "## Summary",
+                "(fill in)",
+                "",
+                "## Limitations And Future Directions",
+                "(fill in)",
+            ]
+        ),
+    )
     write_text(refs["plan_skill"], plan_skill_content)
     write_text(refs["shared_asset"], shared_asset or "(none yet)")
-    write_text(refs["persistent_feedback"], persistent_feedback or "(none yet)")
-    write_text(refs["recent_feedback"], recent_feedback or "(none yet)")
-    if parent_plan_content is not None:
-        refs["parent_plan"] = paths.references / "parent-plan.md"
-        write_text(refs["parent_plan"], parent_plan_content or "(none yet)")
+    write_text(refs["all_guidance"], all_guidance or "(none yet)")
+    write_text(refs["next_guidance"], next_guidance or "(none yet)")
     return refs
 
 
@@ -214,64 +283,60 @@ def training_budget_rule_lines() -> list[str]:
 def render_plan_markdown(
     *,
     plan_id: str,
-    parent_plan_id: str | None,
     run_id: str,
     repo_path: Path,
     source_branch: str,
     plan_kind: str,
     plan_skill_name: str,
+    code_checkpoint: str,
+    code_checkpoint_ref: str,
     essence: dict[str, str],
     goal_text: str,
     questions: list[str],
     steps: list[str],
     deliverables: list[str],
-    references: list[str],
 ) -> str:
-    parent_value = parent_plan_id or "none"
     generated_at = utc_now()
     goal_summary = " ".join(goal_text.strip().split())[:160]
     escaped_goal_summary = goal_summary.replace('"', "'")
-    references_block = (
-        chr(10).join(
-            f"{index}. {item}" for index, item in enumerate(references, start=1)
-        )
-        if references
-        else "1. (none)"
-    )
     return f"""---
 plan_id: {plan_id}
 run_id: {run_id}
-parent_plan_id: {parent_value}
 plan_kind: {plan_kind}
 plan_skill: {plan_skill_name}
 repo_path: {repo_path}
 source_branch: {source_branch}
+code_checkpoint: {code_checkpoint}
+code_checkpoint_ref: {code_checkpoint_ref}
 generated_at: {generated_at}
 goal_summary: "{escaped_goal_summary}"
-plan_essence: "{essence['plan_essence'].replace('"', "'")}"
-decision_focus: "{essence['decision_focus'].replace('"', "'")}"
-expected_signal: "{essence['expected_signal'].replace('"', "'")}"
-next_iteration_hook: "{essence['next_iteration_hook'].replace('"', "'")}"
+plan_essence: "{essence["plan_essence"].replace('"', "'")}"
+decision_focus: "{essence["decision_focus"].replace('"', "'")}"
+expected_signal: "{essence["expected_signal"].replace('"', "'")}"
+all_guidance_ref: "plans/{plan_id}/references/all-guidance.md"
+next_guidance_ref: "plans/{plan_id}/references/next-guidance.md"
 entrypoint: plans/{plan_id}/plan.md
 references_dir: plans/{plan_id}/references
 ---
 
 # Plan Metadata
 - plan_id: {plan_id}
-- parent_plan_id: {parent_value}
 - run_id: {run_id}
 - repo_path: {repo_path}
 - source_branch: {source_branch}
+- code_checkpoint: {code_checkpoint}
+- code_checkpoint_ref: {code_checkpoint_ref}
 - plan_kind: {plan_kind}
 - plan_skill: {plan_skill_name}
-- plan_essence: {essence['plan_essence']}
-- decision_focus: {essence['decision_focus']}
-- expected_signal: {essence['expected_signal']}
-- next_iteration_hook: {essence['next_iteration_hook']}
+- plan_essence: {essence["plan_essence"]}
+- decision_focus: {essence["decision_focus"]}
+- expected_signal: {essence["expected_signal"]}
 - generated_at: {generated_at}
 
 # Experiment Goal
 {goal_text.strip()}
+
+Key experiment intent only. Put full design rationale in `references/design.md`.
 
 # Investigation Questions
 {chr(10).join(f"{index}. {item}" for index, item in enumerate(questions, start=1))}
@@ -279,11 +344,10 @@ references_dir: plans/{plan_id}/references
 # Execution Plan
 {chr(10).join(f"{index}. {item}" for index, item in enumerate(steps, start=1))}
 
+Keep only the decisive execution outline here. Put detailed code-change logic and execution specifics in the reference markdown files.
+
 # Deliverables
 {chr(10).join(f"{index}. {item}" for index, item in enumerate(deliverables, start=1))}
-
-# Referenced Files
-{references_block}
 
 # Result Collection Rules
 1. All intermediate artifacts must be written under the run directory only.
@@ -292,6 +356,7 @@ references_dir: plans/{plan_id}/references
 4. Final summaries must reference concrete artifact paths.
 5. Preserve the intended training budget unless an explicit early-stop rule or repo default justifies stopping earlier.
 6. If training stops early, record the authoritative budget source, actual stop point, and stopping reason.
+7. Keep `plan.md` concise: only key facts belong here. Put deep reasoning, detailed code logic, and in-depth anomaly analysis into the referenced markdown files under `references/`.
 """
 
 
@@ -305,7 +370,14 @@ def validate_plan_markdown(content: str) -> list[str]:
         parts = content.split("---", 2)
         if len(parts) >= 3:
             frontmatter = parts[1]
-    for needle in ("- plan_id:", "- run_id:", "- repo_path:", "- source_branch:"):
+    for needle in (
+        "- plan_id:",
+        "- run_id:",
+        "- repo_path:",
+        "- source_branch:",
+        "- code_checkpoint:",
+        "- code_checkpoint_ref:",
+    ):
         if needle not in content:
             errors.append(f"missing metadata field: {needle}")
     for field in (
@@ -316,7 +388,10 @@ def validate_plan_markdown(content: str) -> list[str]:
         "plan_essence:",
         "decision_focus:",
         "expected_signal:",
-        "next_iteration_hook:",
+        "all_guidance_ref:",
+        "next_guidance_ref:",
+        "code_checkpoint:",
+        "code_checkpoint_ref:",
         "entrypoint:",
         "references_dir:",
     ):
@@ -381,46 +456,49 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
     feedback_context = load_feedback_context(
         load_telegram_settings().feedback_context_limit
     )
+    all_guidance = load_all_guidance_context(
+        load_telegram_settings().feedback_context_limit
+    )
+    next_guidance = load_next_guidance_context(
+        load_telegram_settings().feedback_context_limit
+    )
     output_language = describe_language(manifest.goal_language)
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     profile = infer_plan_skill(goal_text)
     plan_kind = profile.plan_kind
+    code_checkpoint, code_checkpoint_ref = plan_code_checkpoint(manifest)
     logger.info("Creating initial plan {}", plan_id)
     scoped_paths = plan_paths(paths.root, plan_id, ensure=True)
-    refs = _write_plan_references(
+    _write_plan_references(
         run_root=paths.root,
         plan_id=plan_id,
         plan_skill_content=read_text(profile.skill_path),
         shared_asset=inherited_asset,
-        persistent_feedback=persistent_feedback,
-        recent_feedback=feedback_context,
+        all_guidance=all_guidance or persistent_feedback,
+        next_guidance=next_guidance or feedback_context,
     )
-    reference_labels = _reference_paths_for_plan(paths.root, plan_id)
+    goal_summary = " ".join(goal_text.strip().split())[:160]
+    essence = plan_frontmatter_essence(
+        profile=profile,
+        goal_text=goal_text,
+        feedback=None,
+    )
     plan_path = scoped_paths.plan
     prompt_path = scoped_paths.plan_prompt
     content = render_plan_markdown(
         plan_id=plan_id,
-        parent_plan_id=None,
         run_id=manifest.run_id,
         repo_path=Path(manifest.repo_path),
         source_branch=manifest.source_branch,
         plan_kind=plan_kind,
         plan_skill_name=profile.skill_name,
-        essence=plan_frontmatter_essence(
-            profile=profile,
-            goal_text=goal_text,
-            feedback=None,
-        ),
+        code_checkpoint=code_checkpoint,
+        code_checkpoint_ref=code_checkpoint_ref,
+        essence=essence,
         goal_text=goal_text,
         questions=profile_questions(profile, goal_text),
         steps=profile_steps(profile, Path(manifest.repo_path)),
         deliverables=profile_deliverables(profile, plan_id),
-        references=[
-            reference_labels["plan_skill"],
-            reference_labels["shared_asset"],
-            reference_labels["persistent_feedback"],
-            reference_labels["recent_feedback"],
-        ],
     )
     errors = validate_plan_markdown(content)
     if errors:
@@ -437,6 +515,7 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
                 f"Write the final result back to: {plan_path}",
                 f"Plan kind: {plan_kind}",
                 f"Plan skill: {profile.skill_name}",
+                f"Code checkpoint: {code_checkpoint} ({code_checkpoint_ref})",
                 "If a repository shared asset is present, inherit its stable notes and avoid repeating known failures.",
                 "Do not weaken the experiment by silently changing the training budget defined by the plan, repository, or user input.",
                 "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and which budget source remains authoritative.",
@@ -444,24 +523,16 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
                 "The plan file uses a three-layer layout: YAML frontmatter first, markdown body second, referenced files third.",
                 "Keep the frontmatter focused on the reusable essence of this plan, not only identifiers.",
                 "Follow the selected skill's flow, frontmatter emphasis, body rules, and reference-file contract.",
-                f"Referenced file for plan skill: {refs['plan_skill']}",
-                f"Referenced file for shared asset: {refs['shared_asset']}",
-                f"Referenced file for persistent feedback: {refs['persistent_feedback']}",
-                f"Referenced file for recent feedback: {refs['recent_feedback']}",
+                "Use the plan directory's `references/` files when you need the deeper context.",
+                "Read referenced files directly when you need them; do not wait for this prompt to inline their contents.",
                 "",
-                "Repository shared asset:",
-                inherited_asset or "(none yet)",
-                "",
-                "Persistent run guidance from Telegram:",
-                persistent_feedback or "(none yet)",
-                "",
+                f"Plan file reference: {plan_path}",
+                f"Repository shared asset reference: {paths.root / 'assets' / 'repo.md'}",
+                f"All-plan guidance reference: {scoped_paths.references / 'all-guidance.md'}",
+                f"Next-plan guidance reference: {scoped_paths.references / 'next-guidance.md'}",
+                f"Plan skill reference: {scoped_paths.references / 'plan-skill.md'}",
                 "Training budget guardrails:",
                 *training_budget_rule_lines(),
-                "",
-                "Recent user feedback from Telegram inbox:",
-                feedback_context or "(none yet)",
-                "",
-                content,
             ]
         ),
     )
@@ -475,6 +546,12 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
         status="planned",
         short_summary=goal_text.splitlines()[0],
         artifacts=[relative_to_run(plan_path, paths.root)],
+        goal_summary=goal_summary,
+        plan_essence=essence["plan_essence"],
+        decision_focus=essence["decision_focus"],
+        expected_signal=essence["expected_signal"],
+        code_checkpoint=code_checkpoint,
+        code_checkpoint_ref=code_checkpoint_ref,
     )
     append_jsonl(
         paths.logs / "iteration-agent.jsonl",
@@ -494,10 +571,17 @@ def create_iterated_plan(
     feedback_context = load_feedback_context(
         load_telegram_settings().feedback_context_limit
     )
+    all_guidance = load_all_guidance_context(
+        load_telegram_settings().feedback_context_limit
+    )
+    next_guidance = load_next_guidance_context(
+        load_telegram_settings().feedback_context_limit
+    )
     output_language = describe_language(manifest.goal_language)
     plan_id = f"plan-{next_plan_index(paths.plans):03d}"
     profile = infer_plan_skill(goal_text, feedback)
     plan_kind = profile.plan_kind
+    code_checkpoint, code_checkpoint_ref = plan_code_checkpoint(manifest)
     logger.info("Creating iterated plan {} from {}", plan_id, parent_plan_id)
     scoped_paths = plan_paths(paths.root, plan_id, ensure=True)
     parent_paths = plan_paths(paths.root, parent_plan_id)
@@ -505,40 +589,34 @@ def create_iterated_plan(
     parent_plan_path = parent_paths.plan
     if not parent_plan_path.exists():
         raise FileNotFoundError(f"missing parent plan: {parent_plan_path}")
-    refs = _write_plan_references(
+    _write_plan_references(
         run_root=paths.root,
         plan_id=plan_id,
         plan_skill_content=read_text(profile.skill_path),
         shared_asset=inherited_asset,
-        persistent_feedback=persistent_feedback,
-        recent_feedback=feedback_context,
-        parent_plan_content=read_text(parent_plan_path),
+        all_guidance=all_guidance or persistent_feedback,
+        next_guidance=next_guidance or feedback_context,
     )
-    reference_labels = _reference_paths_for_plan(paths.root, plan_id)
+    goal_summary = " ".join(goal_text.strip().split())[:160]
+    essence = plan_frontmatter_essence(
+        profile=profile,
+        goal_text=goal_text,
+        feedback=feedback,
+    )
     content = render_plan_markdown(
         plan_id=plan_id,
-        parent_plan_id=parent_plan_id,
         run_id=manifest.run_id,
         repo_path=Path(manifest.repo_path),
         source_branch=manifest.source_branch,
         plan_kind=plan_kind,
         plan_skill_name=profile.skill_name,
-        essence=plan_frontmatter_essence(
-            profile=profile,
-            goal_text=goal_text,
-            feedback=feedback,
-        ),
+        code_checkpoint=code_checkpoint,
+        code_checkpoint_ref=code_checkpoint_ref,
+        essence=essence,
         goal_text=goal_text,
         questions=profile_questions(profile, goal_text, feedback),
         steps=profile_steps(profile, Path(manifest.repo_path), feedback),
         deliverables=profile_deliverables(profile, plan_id),
-        references=[
-            reference_labels["plan_skill"],
-            reference_labels["shared_asset"],
-            reference_labels["persistent_feedback"],
-            reference_labels["recent_feedback"],
-            reference_labels["parent_plan"],
-        ],
     )
     errors = validate_plan_markdown(content)
     if errors:
@@ -552,42 +630,30 @@ def create_iterated_plan(
                 "Create the next plan without changing the required markdown headings.",
                 f"Repository: {manifest.repo_path}",
                 f"Source branch: {manifest.source_branch}",
-                f"Parent plan: {parent_plan_path}",
                 f"Write the final result back to: {plan_path}",
                 f"Feedback: {feedback}",
                 f"Plan kind: {plan_kind}",
                 f"Plan skill: {profile.skill_name}",
+                f"Code checkpoint: {code_checkpoint} ({code_checkpoint_ref})",
                 "Do not weaken the experiment by silently changing the training budget defined by the plan, repository, or user input.",
                 "If you propose early stopping or a faster proxy, make sure the plan says how comparability is preserved and which budget source remains authoritative.",
                 f"Write user-facing planning text in {output_language} to match the original goal language.",
                 "The plan file uses a three-layer layout: YAML frontmatter first, markdown body second, referenced files third.",
                 "Keep the frontmatter focused on the reusable essence of this plan, not only identifiers.",
                 "Follow the selected skill's flow, frontmatter emphasis, body rules, and reference-file contract.",
-                f"Referenced file for plan skill: {refs['plan_skill']}",
-                f"Referenced file for shared asset: {refs['shared_asset']}",
-                f"Referenced file for persistent feedback: {refs['persistent_feedback']}",
-                f"Referenced file for recent feedback: {refs['recent_feedback']}",
-                f"Referenced file for parent plan: {refs['parent_plan']}",
+                "Use the plan directory's `references/` files when you need the deeper context.",
+                "Read referenced files directly when you need them; do not wait for this prompt to inline their contents.",
+                "Do not treat the next plan as a rewrite of one single parent plan.",
+                "Use the plan catalog to choose whichever prior plans are relevant for forming the current idea.",
                 "",
-                "Repository shared asset:",
-                inherited_asset or "(none yet)",
-                "",
-                "Persistent run guidance from Telegram:",
-                persistent_feedback or "(none yet)",
-                "",
+                f"Plan file reference: {plan_path}",
+                f"Plan catalog reference: {paths.root / 'plans' / 'index.md'}",
+                f"Repository shared asset reference: {paths.root / 'assets' / 'repo.md'}",
+                f"All-plan guidance reference: {scoped_paths.references / 'all-guidance.md'}",
+                f"Next-plan guidance reference: {scoped_paths.references / 'next-guidance.md'}",
+                f"Plan skill reference: {scoped_paths.references / 'plan-skill.md'}",
                 "Training budget guardrails:",
                 *training_budget_rule_lines(),
-                "",
-                "Recent user feedback from Telegram inbox:",
-                feedback_context or "(none yet)",
-                "",
-                "Parent plan content:",
-                "",
-                read_text(parent_plan_path),
-                "",
-                "Draft plan content:",
-                "",
-                content,
             ]
         ),
     )
@@ -605,6 +671,12 @@ def create_iterated_plan(
             relative_to_run(parent_plan_path, paths.root),
             relative_to_run(plan_path, paths.root),
         ],
+        goal_summary=goal_summary,
+        plan_essence=essence["plan_essence"],
+        decision_focus=essence["decision_focus"],
+        expected_signal=essence["expected_signal"],
+        code_checkpoint=code_checkpoint,
+        code_checkpoint_ref=code_checkpoint_ref,
     )
     append_jsonl(
         paths.logs / "iteration-agent.jsonl",

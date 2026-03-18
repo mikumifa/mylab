@@ -4,14 +4,9 @@ from pathlib import Path
 
 from mylab.codex import CodexExecSpec, CodexRunner
 from mylab.logging import logger
-from mylab.services.assets import load_repo_asset, repo_asset_path
+from mylab.services.assets import repo_asset_path
 from mylab.services.notifications import NotificationClient, load_notification_settings
 from mylab.services.plans import training_budget_rule_lines
-from mylab.services.telegram_bot import (
-    load_feedback_context,
-    load_persistent_feedback_context,
-    load_telegram_settings,
-)
 from mylab.storage import append_jsonl, write_text
 from mylab.storage.plan_layout import plan_paths, relative_to_run
 from mylab.storage.runs import load_manifest
@@ -20,13 +15,6 @@ from mylab.utils import describe_language, utc_now
 
 def executor_prompt(run_dir: Path, plan_id: str) -> str:
     manifest = load_manifest(run_dir)
-    inherited_asset = load_repo_asset(run_dir)
-    persistent_feedback = load_persistent_feedback_context(
-        load_telegram_settings().feedback_context_limit
-    )
-    feedback_context = load_feedback_context(
-        load_telegram_settings().feedback_context_limit
-    )
     paths = plan_paths(run_dir, plan_id)
     plan_path = paths.plan
     result_path = paths.result
@@ -45,8 +33,6 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             f"Structured log path: {log_path}",
             f"Plan index path: {run_dir / 'plans' / 'index.md'}",
             f"Repository shared asset path: {repo_asset_path(run_dir)}",
-            f"Plan references directory: {paths.references}",
-            f"Plan skill reference: {paths.references / 'plan-skill.md'}",
             f"Job monitor metadata directory: {run_dir / 'jobs'}",
             "Rules:",
             "1. Do not hardcode experiment output paths outside the run directory.",
@@ -62,26 +48,18 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             "11. Do not silently change the training budget defined by the plan, repository, or user input.",
             "12. Early stopping, reduced search, or proxy runs are allowed only when justified by repo logic or explicit plan rationale, and the result report must state both the authoritative budget source and the actual stop point.",
             f"13. Write the result report and concise user-facing summary in {describe_language(manifest.goal_language)} to match the original goal language.",
-            "14. Follow the workflow contract captured in references/plan-skill.md so structure-tuning plans and parameter-tuning plans keep different execution styles.",
+            "14. Use the current plan's `references/` files when the plan body points to deeper context; do not wait for the prompt to enumerate every path.",
+            "15. Read referenced files directly when you need them; this prompt intentionally avoids inlining large file contents.",
             "",
-            "Repository shared asset:",
-            inherited_asset or "(none yet)",
-            "",
-            "Persistent run guidance from Telegram:",
-            persistent_feedback or "(none yet)",
-            "",
+            f"Repository shared asset reference: {repo_asset_path(run_dir)}",
+            f"All-plan guidance reference: {paths.references / 'all-guidance.md'}",
+            f"Next-plan guidance reference: {paths.references / 'next-guidance.md'}",
+            f"Plan skill reference: {paths.references / 'plan-skill.md'}",
             "Training budget guardrails:",
             *training_budget_rule_lines(),
             "",
-            "Recent user feedback from Telegram inbox:",
-            feedback_context or "(none yet)",
-            "",
             "After completion, write a markdown result report and a concise summary.",
             "The result report must explicitly mention the authoritative training budget source, the actual executed budget, and any early-stopping condition when training is involved.",
-            "",
-            "Plan content:",
-            "",
-            plan_path.read_text(encoding="utf-8"),
             "",
             f"Also write a reusable shell entrypoint to: {command_path}",
         ]

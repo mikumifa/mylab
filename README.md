@@ -35,6 +35,7 @@ src/mylab/
 - `plans/index.md` 和 `plans/index.jsonl` 维护每轮最短摘要，便于后续模型先做快速检索。
 - 通知层基于 Apprise，单次接入即可复用 Telegram、Discord、Slack、邮件、Webhook 等多个平台，配置固定放在用户目录 `~/.mylab/config.toml`。
 - 计划生成现在显式依赖两类 workflow skill：`mylab-structure-tuning` 和 `mylab-parameter-tuning`。它们定义 frontmatter 精华字段、正文叙事风格和引用文件组织方式。
+- 两类 workflow skill 也各自提供 plan template 和引用文件 template，避免“调结构”和“调参”写成同一种 plan。
 
 ## 目录约定
 
@@ -89,15 +90,16 @@ $MYLAB_RUNS_DIR/<run_id>/plans/plan-001/
 其中 `plan.md` 使用三层结构：
 
 1. YAML frontmatter: 让模型先快速判断这个 plan 是否值得复用。
-2. Markdown 正文: 保持固定 heading，描述目标、步骤、交付物和结果收集规则。
-3. `references/` 引用文件: 只有正文引用到时才需要继续加载，避免一次性把所有上下文塞进模型。
+2. Markdown 正文: 只保留关键事实和关键判断，不展开复杂逻辑。
+3. `references/` 引用文件: 承接详细的代码变动逻辑、深度异常分析、完整 artifact 清单等重内容，只有正文需要时才继续加载。
 
 frontmatter 不只放定位字段，还会放由 workflow skill 约束出来的“精华摘要”，例如：
 
 - `plan_essence`
 - `decision_focus`
 - `expected_signal`
-- `next_iteration_hook`
+- `code_checkpoint`
+- `code_checkpoint_ref`
 
 这几个字段在“调结构”和“调参”两种流程下会有不同风格。
 
@@ -132,7 +134,6 @@ run
 # Investigation Questions
 # Execution Plan
 # Deliverables
-# Referenced Files
 # Result Collection Rules
 ```
 

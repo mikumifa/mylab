@@ -190,7 +190,7 @@ class TelegramBotTest(unittest.TestCase):
                 "message": {
                     "message_id": 14,
                     "chat": {"id": 42},
-                    "text": "/run always keep the lightweight baseline in scope",
+                    "text": "/all always keep the lightweight baseline in scope",
                 },
             },
             {
@@ -224,14 +224,14 @@ class TelegramBotTest(unittest.TestCase):
             kinds,
             ["command", "command", "command", "text", "text", "text", "document"],
         )
-        self.assertEqual(scopes, ["-", "-", "-", "step", "step", "run", "run"])
+        self.assertEqual(scopes, ["-", "-", "-", "next", "next", "all", "all"])
         self.assertTrue((telegram_bot.TELEGRAM_FILE_DIR / "13-notes.txt").exists())
 
         context = load_feedback_context(limit=5)
         self.assertIn("lighter baseline", context)
         self.assertIn("Continue to the next full iteration", context)
-        self.assertIn("scope=step", context)
-        self.assertIn("scope=run", context)
+        self.assertIn("scope=next", context)
+        self.assertIn("scope=all", context)
         self.assertIn("13-notes.txt", context)
         persistent_context = load_persistent_feedback_context(limit=5)
         self.assertIn("always keep the lightweight baseline in scope", persistent_context)
@@ -249,12 +249,12 @@ class TelegramBotTest(unittest.TestCase):
                 ),
                 (
                     42,
-                    "Feedback saved for the next iteration. Use /run <text> for persistent run guidance.",
+                    "Next guidance saved. Use /all <text> for guidance that should apply to future plans.",
                     None,
                 ),
                 (
                     42,
-                    "Run guidance saved. It will be carried into future iterations.",
+                    "All-plan guidance saved. It will be carried into future plans.",
                     None,
                 ),
                 (42, "File saved: 13-notes.txt", None),
@@ -340,6 +340,7 @@ class TelegramBotTest(unittest.TestCase):
         self.assertTrue(sent)
         self.assertEqual(len(fake_bot.sent_messages), 1)
         self.assertIn("Reply /continue to proceed", fake_bot.sent_messages[0][1])
+        self.assertIn("/next <text>", fake_bot.sent_messages[0][1])
         self.assertIn("Validation accuracy reached 91.2%", fake_bot.sent_messages[0][1])
         self.assertEqual(
             fake_bot.sent_documents,
