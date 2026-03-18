@@ -50,6 +50,11 @@ class GitManager:
         )
         return result.returncode == 0
 
+    def delete_branch(self, branch: str, *, force: bool = True) -> None:
+        flag = "-D" if force else "-d"
+        logger.info("Deleting git branch {}", branch)
+        self._run(["branch", flag, branch])
+
     def add(self, *paths: str) -> None:
         if not paths:
             return

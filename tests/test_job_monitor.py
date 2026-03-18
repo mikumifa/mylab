@@ -14,6 +14,7 @@ from mylab.commands.root import build_parser, cmd_start_job
 from mylab.domain import RunManifest
 from mylab.services.job_monitor import start_job, tail_job, wait_for_job
 from mylab.storage import write_text
+from mylab.storage.plan_layout import plan_paths
 from mylab.storage.runs import init_run_dirs, save_manifest
 
 
@@ -102,6 +103,10 @@ class JobMonitorTest(unittest.TestCase):
         )
         self.assertEqual(waited["status"], "completed")
         self.assertEqual(waited["exit_code"], 0)
+        scoped_paths = plan_paths(self.paths.root, "plan-001")
+        self.assertTrue(str(scoped_paths.logs) in waited["stdout_path"])
+        self.assertTrue((scoped_paths.jobs / f"{started['job_id']}.json").exists())
+        self.assertTrue((scoped_paths.jobs / f"{started['job_id']}.runner.sh").exists())
         tailed = tail_job(self.paths.root, started["job_id"], lines=5)
         self.assertEqual(tailed["stdout_tail"], "done")
 

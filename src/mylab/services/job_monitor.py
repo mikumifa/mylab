@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from mylab.storage import ensure_dir, read_json, write_json
+from mylab.storage.plan_layout import plan_paths
 from mylab.utils import shell_join, slugify, utc_now
 
 
@@ -22,7 +23,12 @@ def _job_id(plan_id: str, name: str | None) -> str:
     return f"{plan_id}-{label}-{stamp.lower()}"
 
 
-def _job_record_path(run_dir: Path, job_id: str) -> Path:
+def _job_record_path(run_dir: Path, job_id: str, plan_id: str | None = None) -> Path:
+    if plan_id:
+        return plan_paths(run_dir, plan_id, ensure=True).jobs / f"{job_id}.json"
+    matches = sorted(run_dir.glob(f"plans/*/jobs/{job_id}.json"))
+    if matches:
+        return matches[-1]
     return run_dir / "jobs" / f"{job_id}.json"
 
 
@@ -94,16 +100,14 @@ def start_job(
     cwd: str | None = None,
     shell: str = "/bin/bash",
 ) -> dict[str, Any]:
-    ensure_dir(run_dir / "jobs")
-    ensure_dir(run_dir / "commands")
-    ensure_dir(run_dir / "logs")
+    scoped_paths = plan_paths(run_dir, plan_id, ensure=True)
     job_id = _job_id(plan_id, name)
     resolved_cwd = str(Path(cwd).expanduser().resolve()) if cwd else str(run_dir)
-    stdout_path = run_dir / "logs" / f"{job_id}.stdout.log"
-    stderr_path = run_dir / "logs" / f"{job_id}.stderr.log"
-    exit_code_path = run_dir / "jobs" / f"{job_id}.exitcode"
-    finished_at_path = run_dir / "jobs" / f"{job_id}.finished_at"
-    runner_path = run_dir / "commands" / f"{job_id}.runner.sh"
+    stdout_path = scoped_paths.logs / f"{job_id}.stdout.log"
+    stderr_path = scoped_paths.logs / f"{job_id}.stderr.log"
+    exit_code_path = scoped_paths.jobs / f"{job_id}.exitcode"
+    finished_at_path = scoped_paths.jobs / f"{job_id}.finished_at"
+    runner_path = scoped_paths.jobs / f"{job_id}.runner.sh"
     runner_lines = [
         "#!/usr/bin/env bash",
         "set -uo pipefail",
@@ -153,12 +157,12 @@ def start_job(
         "stderr_path": str(stderr_path),
         "exit_code_path": str(exit_code_path),
         "finished_at_path": str(finished_at_path),
-        "record_path": str(_job_record_path(run_dir, job_id)),
+        "record_path": str(_job_record_path(run_dir, job_id, plan_id)),
         "started_at": utc_now(),
         "finished_at": None,
         "exit_code": None,
     }
-    write_json(_job_record_path(run_dir, job_id), record)
+    write_json(_job_record_path(run_dir, job_id, plan_id), record)
     return {
         "job_id": job_id,
         "status": "running",

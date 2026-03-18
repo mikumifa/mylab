@@ -3,13 +3,22 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 
 from mylab.codex import get_codex_status
+from mylab.config import CURRENT_RUN_FILE
 from mylab.flow import SerialFlowRunner
+from mylab.gittools import GitManager
 from mylab.logging import configure_logging, emit_progress, logger
-from mylab.orchestrator import enqueue_initial_pipeline, enqueue_iteration_pipeline
+from mylab.orchestrator import (
+    enqueue_initial_pipeline,
+    enqueue_iteration_pipeline,
+    load_queue,
+    save_queue,
+)
+from mylab.domain import QueueState
 from mylab.services import (
     FLOW_MODE_LIMIT,
     FLOW_MODE_STEP,
@@ -40,11 +49,129 @@ from mylab.services import (
 )
 from mylab.services.git_lifecycle import restore_original_branch
 from mylab.services.plans import lab_input_text
-from mylab.storage import init_run_dirs, runs_root
-from mylab.storage.runs import load_manifest, planned_run_dirs
+from mylab.storage import ensure_dir, init_run_dirs, read_json, runs_root, write_json
+from mylab.storage.plan_layout import plan_paths
+from mylab.storage.runs import load_manifest, planned_run_dirs, save_manifest
+from mylab.utils import slugify
 
 
 HELP_FORMATTER = argparse.RawDescriptionHelpFormatter
+
+
+def _current_run_file() -> Path:
+    return CURRENT_RUN_FILE
+
+
+def list_named_runs() -> list[Path]:
+    root = runs_root()
+    runs: list[Path] = []
+    for candidate in sorted(root.iterdir()):
+        if candidate.is_dir() and (candidate / "manifests" / "run.json").exists():
+            runs.append(candidate)
+    return runs
+
+
+def resolve_run_dir_by_name(name: str) -> Path:
+    return runs_root() / name
+
+
+def set_current_run(name: str) -> None:
+    write_json(_current_run_file(), {"run": name})
+
+
+def get_current_run_name() -> str | None:
+    path = _current_run_file()
+    if not path.exists():
+        return None
+    payload = read_json(path)
+    value = payload.get("run")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def clear_current_run_if_matches(name: str) -> None:
+    if get_current_run_name() == name:
+        try:
+            _current_run_file().unlink()
+        except FileNotFoundError:
+            pass
+
+
+def require_selected_run_dir() -> Path:
+    name = get_current_run_name()
+    if not name:
+        raise ValueError("no active run selected; use `mylab run use <name>` first")
+    run_dir = resolve_run_dir_by_name(name)
+    if not (run_dir / "manifests" / "run.json").exists():
+        raise ValueError(
+            f"selected run `{name}` does not exist anymore; use `mylab run ls` and `mylab run use <name>`"
+        )
+    return run_dir
+
+
+def _plan_branch_name(run_id: str, plan_id: str) -> str:
+    return f"mylab/{slugify(run_id, max_length=24)}/{plan_id}"
+
+
+def _delete_plan_branch_if_present(run_dir: Path, plan_id: str) -> None:
+    manifest = load_manifest(run_dir)
+    repo_path = Path(manifest.repo_path)
+    git = GitManager(repo_path, run_dir / "logs" / "git-lifecycle.jsonl")
+    branch = _plan_branch_name(manifest.run_id, plan_id)
+    if not git.branch_exists(branch):
+        return
+    current = git.current_branch()
+    if current == branch:
+        git.checkout(manifest.original_branch or manifest.source_branch)
+    git.delete_branch(branch, force=True)
+
+
+def _remove_plan_from_queue(run_dir: Path, plan_id: str) -> None:
+    queue = load_queue(run_dir)
+    filtered = []
+    for task in queue.tasks:
+        payload = task.payload or {}
+        if payload.get("plan_id") == plan_id or payload.get("parent_plan_id") == plan_id:
+            continue
+        filtered.append(task)
+    save_queue(run_dir, QueueState(tasks=filtered))
+
+
+def _remove_plan_from_index(run_dir: Path, plan_id: str) -> None:
+    index_path = run_dir / "plans" / "index.jsonl"
+    if not index_path.exists():
+        return
+    lines = index_path.read_text(encoding="utf-8").splitlines()
+    kept = []
+    for line in lines:
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("plan_id") == plan_id:
+            continue
+        kept.append(record)
+    write_jsonl_path = run_dir / "plans" / "index.jsonl"
+    write_jsonl_path.write_text(
+        "\n".join(json.dumps(item, ensure_ascii=True) for item in kept) + ("\n" if kept else ""),
+        encoding="utf-8",
+    )
+    markdown = ["# Plan Catalog", f"- run_id: {run_dir.name}"]
+    for record in kept:
+        markdown.extend(
+            [
+                "",
+                f"## {record['plan_id']}",
+                f"- plan_kind: {record.get('plan_kind', 'unknown')}",
+                f"- status: {record['status']}",
+                f"- goal_summary: {record.get('goal_summary', '-')}",
+                f"- plan_path: {record.get('plan_path', '-')}",
+                f"- summary_path: {record.get('summary_path', '-')}",
+            ]
+        )
+    (run_dir / "plans" / "index.md").write_text(
+        "\n".join(markdown).rstrip() + "\n", encoding="utf-8"
+    )
 
 
 def resolve_goal_input(goal: str | None, lab_md: Path | None) -> tuple[str, str]:
@@ -101,48 +228,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mylab",
         description="Codex-based experiment orchestration CLI for research repositories.",
-        epilog=(
-            "Common workflows:\n"
-            "  1. Start a new experiment and run it immediately:\n"
-            "     mylab run --repo /path/to/repo --goal 'reproduce main experiment'\n"
-            "     mylab run --repo /path/to/repo --goal ./goal.md\n"
-            "  2. Resume an existing run directory:\n"
-            "     mylab run --run-dir .mylab_runs/<run_id>\n"
-            "  3. Continue the same run across full iterations:\n"
-            "     mylab run --run-dir .mylab_runs/<run_id> --mode step\n"
-            "     mylab run --run-dir .mylab_runs/<run_id> --mode unlimit\n\n"
-            "Advanced tools:\n"
-            "  - Internal/low-level commands live under `mylab tool ...`\n"
-            "  - Example: mylab tool prepare-executor --run-dir .mylab_runs/<run_id>\n\n"
-            "Notes:\n"
-            "  - MYLAB_RUNS_DIR controls where run artifacts are stored.\n"
-            "  - If the run directory is inside the experiment repo, mylab will add it to that repo's .gitignore.\n"
-            "  - run is the main entrypoint for normal use.\n"
-            "  - run executes the flow directly; it does not need a separate allow-exec flag."
-        ),
         formatter_class=HELP_FORMATTER,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     flow_cmd = subparsers.add_parser(
-        "run",
+        "start",
         help="Start or resume an experiment run and execute it directly.",
         description=(
             "Main entrypoint.\n"
-            "Use --repo with --goal/--lab-md to create a new run and execute it immediately,\n"
-            "or use --run-dir to resume an existing run."
+            "Use --repo with --goal/--lab-md to create a new named run and execute it immediately,\n"
+            "or use --run to resume an existing run by name."
         ),
         epilog=(
             "Example:\n"
-            "  mylab run --repo /path/to/repo --goal 'reproduce table 1'\n"
-            "  mylab run --repo /path/to/repo --goal ./goal.md\n"
-            "  mylab run --repo /path/to/repo --lab-md ./lab.md\n"
-            "  mylab run --run-dir .mylab_runs/<run_id>"
+            "  mylab start --repo /path/to/repo --goal 'reproduce table 1'\n"
+            "  mylab start --repo /path/to/repo --goal ./goal.md --run run_xx\n"
+            "  mylab start --run run_xx\n"
         ),
         formatter_class=HELP_FORMATTER,
     )
     flow_cmd.add_argument(
-        "--run-dir", type=Path, help="Existing run directory to resume."
+        "--run", help="Run name. If omitted for a new run, mylab creates one."
     )
     flow_cmd.add_argument(
         "--repo",
@@ -162,10 +269,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Base Git branch for later experiment work. Defaults to current branch.",
     )
     flow_cmd.add_argument(
-        "--run-id",
-        help="Explicit run identifier for a new run. Defaults to a timestamp-based value.",
-    )
-    flow_cmd.add_argument(
         "--model",
         help="Optional Codex model override. If omitted, Codex uses its configured default.",
     )
@@ -179,6 +282,36 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Iteration count. In limit mode it is the hard cap. In step mode it is the number of iterations to auto-run before per-iteration confirmation.",
     )
+
+    run_cmd = subparsers.add_parser(
+        "run",
+        help="Manage named runs.",
+        formatter_class=HELP_FORMATTER,
+    )
+    run_subparsers = run_cmd.add_subparsers(dest="run_command", required=True)
+
+    run_use_cmd = run_subparsers.add_parser("use", help="Select the active run.")
+    run_use_cmd.add_argument("name", help="Run name to select.")
+
+    run_subparsers.add_parser("ls", help="List named runs.")
+
+    run_rm_cmd = run_subparsers.add_parser("rm", help="Remove a named run.")
+    run_rm_cmd.add_argument("name", help="Run name to remove.")
+
+    plan_cmd = subparsers.add_parser(
+        "plan",
+        help="Manage plans inside the active run.",
+        formatter_class=HELP_FORMATTER,
+    )
+    plan_subparsers = plan_cmd.add_subparsers(dest="plan_command", required=True)
+    plan_ls_cmd = plan_subparsers.add_parser("ls", help="List plans in the active run.")
+    plan_ls_cmd.add_argument("--run", help="Optional run name override.")
+    plan_cat_cmd = plan_subparsers.add_parser("cat", help="Show one plan.")
+    plan_cat_cmd.add_argument("plan_id", help="Plan id to inspect.")
+    plan_cat_cmd.add_argument("--run", help="Optional run name override.")
+    plan_rm_cmd = plan_subparsers.add_parser("rm", help="Remove one plan and its local context.")
+    plan_rm_cmd.add_argument("plan_id", help="Plan id to remove.")
+    plan_rm_cmd.add_argument("--run", help="Optional run name override.")
 
     queue_iter_cmd = subparsers.add_parser(
         "queue-iteration",
@@ -564,21 +697,19 @@ def cmd_poll_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_run_flow(args: argparse.Namespace) -> int:
-    if args.run_dir:
-        run_dir = args.run_dir.expanduser().resolve()
+def cmd_start(args: argparse.Namespace) -> int:
+    run_name = args.run
+    run_dir = resolve_run_dir_by_name(run_name).expanduser().resolve() if run_name else None
+    if run_dir and (run_dir / "manifests" / "run.json").exists():
         init_run_dirs(run_dir)
         configure_logging(run_dir / "logs")
         print_codex_preflight(args.model)
-    else:
-        if not args.repo or not (args.goal or args.lab_md):
-            raise ValueError(
-                "run requires either --run-dir or (--repo and one of --goal/--lab-md)"
-            )
+        set_current_run(run_dir.name)
+    elif args.repo and (args.goal or args.lab_md):
         repo_path = args.repo.expanduser().resolve()
         lab_md = args.lab_md.expanduser().resolve() if args.lab_md else None
         goal_text = lab_input_text(args.goal, lab_md)
-        run_id = args.run_id or make_run_id(goal_text)
+        run_id = run_name or make_run_id(goal_text)
         paths = planned_run_dirs(runs_root() / run_id)
         input_text, input_name = resolve_goal_input(args.goal, lab_md)
         bootstrap_run(
@@ -594,7 +725,13 @@ def cmd_run_flow(args: argparse.Namespace) -> int:
         print_codex_preflight(args.model)
         enqueue_initial_pipeline(paths.root, args.model)
         run_dir = paths.root
+        set_current_run(run_id)
         logger.info("Initialized run at {}", run_dir)
+    else:
+        run_dir = require_selected_run_dir()
+        init_run_dirs(run_dir)
+        configure_logging(run_dir / "logs")
+        print_codex_preflight(args.model)
     mode, limit = resolve_flow_control(
         mode=args.mode,
         limit=args.limit,
@@ -607,6 +744,91 @@ def cmd_run_flow(args: argparse.Namespace) -> int:
     ).run_until_blocked(limit=limit)
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
+    return 0
+
+
+def cmd_run_use(args: argparse.Namespace) -> int:
+    run_dir = resolve_run_dir_by_name(args.name)
+    if not (run_dir / "manifests" / "run.json").exists():
+        raise ValueError(f"run `{args.name}` does not exist")
+    set_current_run(args.name)
+    print(args.name)
+    return 0
+
+
+def cmd_run_ls(args: argparse.Namespace) -> int:
+    current = get_current_run_name()
+    for run_dir in list_named_runs():
+        marker = "*" if run_dir.name == current else " "
+        manifest = load_manifest(run_dir)
+        print(
+            f"{marker} {run_dir.name}\tstatus={manifest.status}\tlatest_plan={manifest.latest_plan_id or '-'}\trepo={manifest.repo_path}"
+        )
+    return 0
+
+
+def cmd_run_rm(args: argparse.Namespace) -> int:
+    run_dir = resolve_run_dir_by_name(args.name)
+    if not (run_dir / "manifests" / "run.json").exists():
+        raise ValueError(f"run `{args.name}` does not exist")
+    manifest = load_manifest(run_dir)
+    git = GitManager(Path(manifest.repo_path), run_dir / "logs" / "git-lifecycle.jsonl")
+    if manifest.work_branch and git.branch_exists(manifest.work_branch):
+        if git.current_branch() == manifest.work_branch:
+            git.checkout(manifest.original_branch or manifest.source_branch)
+        git.delete_branch(manifest.work_branch, force=True)
+    shutil.rmtree(run_dir)
+    clear_current_run_if_matches(args.name)
+    print(args.name)
+    return 0
+
+
+def _resolve_plan_run_dir(run_name: str | None) -> Path:
+    if run_name:
+        run_dir = resolve_run_dir_by_name(run_name)
+        if not (run_dir / "manifests" / "run.json").exists():
+            raise ValueError(f"run `{run_name}` does not exist")
+        return run_dir
+    return require_selected_run_dir()
+
+
+def cmd_plan_ls(args: argparse.Namespace) -> int:
+    run_dir = _resolve_plan_run_dir(getattr(args, "run", None))
+    plans_dir = run_dir / "plans"
+    for candidate in sorted(plans_dir.iterdir()):
+        if candidate.is_dir() and candidate.name.startswith("plan-"):
+            print(candidate.name)
+    return 0
+
+
+def cmd_plan_cat(args: argparse.Namespace) -> int:
+    run_dir = _resolve_plan_run_dir(getattr(args, "run", None))
+    paths = plan_paths(run_dir, args.plan_id)
+    if not paths.plan.exists():
+        raise ValueError(f"plan `{args.plan_id}` does not exist in run `{run_dir.name}`")
+    print(paths.plan.read_text(encoding="utf-8"))
+    return 0
+
+
+def cmd_plan_rm(args: argparse.Namespace) -> int:
+    run_dir = _resolve_plan_run_dir(getattr(args, "run", None))
+    paths = plan_paths(run_dir, args.plan_id)
+    if not paths.root.exists():
+        raise ValueError(f"plan `{args.plan_id}` does not exist in run `{run_dir.name}`")
+    _delete_plan_branch_if_present(run_dir, args.plan_id)
+    _remove_plan_from_queue(run_dir, args.plan_id)
+    _remove_plan_from_index(run_dir, args.plan_id)
+    shutil.rmtree(paths.root)
+    manifest = load_manifest(run_dir)
+    if manifest.latest_plan_id == args.plan_id:
+        remaining = [
+            item.name
+            for item in sorted((run_dir / "plans").iterdir())
+            if item.is_dir() and item.name.startswith("plan-")
+        ]
+        manifest.latest_plan_id = remaining[-1] if remaining else None
+        save_manifest(init_run_dirs(run_dir), manifest)
+    print(args.plan_id)
     return 0
 
 
@@ -895,7 +1117,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     interrupt_run_dir: Path | None = None
     commands = {
-        "run": cmd_run_flow,
+        "start": cmd_start,
         "queue-iteration": cmd_queue_iteration,
     }
     tool_commands = {
@@ -916,10 +1138,28 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if getattr(args, "run_dir", None):
             interrupt_run_dir = args.run_dir.expanduser().resolve()
+        if getattr(args, "run", None):
+            candidate = resolve_run_dir_by_name(args.run)
+            if (candidate / "manifests" / "run.json").exists():
+                interrupt_run_dir = candidate
         if args.command == "tool":
             if args.tool_command in {"run-executor", "poll-run", "prepare-executor", "write-summary", "iterate-plan", "start-job", "wait-job", "tail-job"}:
                 interrupt_run_dir = args.run_dir.expanduser().resolve()
             return tool_commands[args.tool_command](args)
+        if args.command == "run":
+            run_commands = {
+                "use": cmd_run_use,
+                "ls": cmd_run_ls,
+                "rm": cmd_run_rm,
+            }
+            return run_commands[args.run_command](args)
+        if args.command == "plan":
+            plan_commands = {
+                "ls": cmd_plan_ls,
+                "cat": cmd_plan_cat,
+                "rm": cmd_plan_rm,
+            }
+            return plan_commands[args.plan_command](args)
         if args.command == "bot":
             if args.bot_command == "test":
                 return cmd_bot_test(args)

@@ -7,8 +7,8 @@ from mylab.logging import logger
 from mylab.services.assets import repo_asset_path
 from mylab.services.notifications import NotificationClient, load_notification_settings
 from mylab.services.plans import training_budget_rule_lines
-from mylab.storage import append_jsonl, write_text
-from mylab.storage.plan_layout import plan_paths, relative_to_run
+from mylab.storage import append_jsonl, write_json, write_text
+from mylab.storage.plan_layout import plan_iteration_log_path, plan_paths, relative_to_run
 from mylab.storage.runs import load_manifest
 from mylab.utils import describe_language, utc_now
 
@@ -33,7 +33,8 @@ def executor_prompt(run_dir: Path, plan_id: str) -> str:
             f"Structured log path: {log_path}",
             f"Plan index path: {run_dir / 'plans' / 'index.md'}",
             f"Repository shared asset path: {repo_asset_path(run_dir)}",
-            f"Job monitor metadata directory: {run_dir / 'jobs'}",
+            f"Job monitor directory: {paths.jobs}",
+            f"Plan log directory: {paths.logs}",
             "Rules:",
             "1. Do not hardcode experiment output paths outside the run directory.",
             "2. Preserve raw command output and intermediate artifacts.",
@@ -88,12 +89,22 @@ def prepare_executor(run_dir: Path, plan_id: str, model: str | None) -> Path:
     logger.info("Preparing Codex executor for {} in {}", plan_id, run_dir)
     CodexRunner().prepare_shell_script(spec, command_path)
     append_jsonl(
-        run_dir / "logs" / "iteration-agent.jsonl",
+        plan_iteration_log_path(run_dir, plan_id),
         {
             "ts": utc_now(),
             "level": "INFO",
             "event": "executor_prepared",
             "plan_id": plan_id,
+            "prompt": relative_to_run(prompt_path, run_dir),
+            "command": relative_to_run(command_path, run_dir),
+        },
+    )
+    write_json(
+        paths.status,
+        {
+            "plan_id": plan_id,
+            "status": "executor_prepared",
+            "prepared_at": utc_now(),
             "prompt": relative_to_run(prompt_path, run_dir),
             "command": relative_to_run(command_path, run_dir),
         },
@@ -121,7 +132,7 @@ def run_executor(
     )
     logger.info("Running Codex executor for {} on repo {}", plan_id, manifest.repo_path)
     append_jsonl(
-        run_dir / "logs" / "iteration-agent.jsonl",
+        plan_iteration_log_path(run_dir, plan_id),
         {
             "ts": utc_now(),
             "level": "INFO",
@@ -141,12 +152,21 @@ def run_executor(
 
     CodexRunner().run(spec, on_event=on_event)
     append_jsonl(
-        run_dir / "logs" / "iteration-agent.jsonl",
+        plan_iteration_log_path(run_dir, plan_id),
         {
             "ts": utc_now(),
             "level": "INFO",
             "event": "executor_finished",
             "plan_id": plan_id,
+        },
+    )
+    write_json(
+        paths.status,
+        {
+            "plan_id": plan_id,
+            "status": "executor_finished",
+            "finished_at": utc_now(),
+            "output": relative_to_run(output_path, run_dir),
         },
     )
     return output_path

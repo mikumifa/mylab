@@ -8,7 +8,7 @@ from mylab.logging import logger
 from mylab.services.repo_ignore import ensure_run_dir_ignored
 from mylab.services.repo_skills import ensure_repo_skills_installed
 from mylab.storage import append_jsonl
-from mylab.storage.plan_layout import plan_paths
+from mylab.storage.plan_layout import plan_iteration_log_path, plan_paths
 from mylab.storage.runs import init_run_dirs, save_manifest
 from mylab.utils import (
     detect_git_branch,
@@ -101,6 +101,15 @@ def ensure_run_branch(run_dir: Path, manifest: RunManifest, plan_id: str) -> str
             "returned_from": current,
         },
     )
+    append_jsonl(
+        plan_iteration_log_path(run_dir, plan_id),
+        {
+            "ts": utc_now(),
+            "event": "run_branch_prepared",
+            "plan_id": plan_id,
+            "work_branch": work_branch,
+        },
+    )
     return work_branch
 
 
@@ -141,6 +150,17 @@ def commit_iteration_changes(run_dir: Path, manifest: RunManifest, plan_id: str)
     )
     append_jsonl(
         paths.logs / "git-lifecycle.jsonl",
+        {
+            "ts": utc_now(),
+            "event": "iteration_git_delivered",
+            "plan_id": plan_id,
+            "work_branch": branch,
+            "head_commit": head_commit,
+            "committed_new_changes": committed,
+        },
+    )
+    append_jsonl(
+        plan_iteration_log_path(run_dir, plan_id),
         {
             "ts": utc_now(),
             "event": "iteration_git_delivered",

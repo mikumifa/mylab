@@ -11,11 +11,7 @@ class RunPaths:
     inputs: Path
     assets: Path
     plans: Path
-    prompts: Path
     logs: Path
-    jobs: Path
-    results: Path
-    summaries: Path
     commands: Path
     manifests: Path
     queue: Path

@@ -20,8 +20,12 @@ from mylab.services.telegram_bot import (
     load_persistent_feedback_context,
     load_telegram_settings,
 )
-from mylab.storage import append_jsonl, read_text, write_text
-from mylab.storage.plan_layout import plan_paths, relative_to_run
+from mylab.storage import append_jsonl, read_text, write_json, write_text
+from mylab.storage.plan_layout import (
+    plan_iteration_log_path,
+    plan_paths,
+    relative_to_run,
+)
 from mylab.storage.runs import init_run_dirs, save_manifest
 from mylab.utils import (
     describe_language,
@@ -504,6 +508,28 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
     if errors:
         raise ValueError("; ".join(errors))
     write_text(plan_path, content)
+    write_json(
+        scoped_paths.card,
+        {
+            "plan_id": plan_id,
+            "plan_kind": plan_kind,
+            "plan_skill": profile.skill_name,
+            "goal_summary": goal_summary,
+            "plan_essence": essence["plan_essence"],
+            "decision_focus": essence["decision_focus"],
+            "expected_signal": essence["expected_signal"],
+            "code_checkpoint": code_checkpoint,
+            "code_checkpoint_ref": code_checkpoint_ref,
+        },
+    )
+    write_json(
+        scoped_paths.status,
+        {
+            "plan_id": plan_id,
+            "status": "planned",
+            "generated_at": utc_now(),
+        },
+    )
     write_text(
         prompt_path,
         "\n".join(
@@ -554,7 +580,7 @@ def create_initial_plan(paths: RunPaths, manifest: RunManifest) -> Path:
         code_checkpoint_ref=code_checkpoint_ref,
     )
     append_jsonl(
-        paths.logs / "iteration-agent.jsonl",
+        plan_iteration_log_path(paths.root, plan_id),
         {"ts": utc_now(), "level": "INFO", "event": "plan_created", "plan_id": plan_id},
     )
     return plan_path
@@ -622,6 +648,29 @@ def create_iterated_plan(
     if errors:
         raise ValueError("; ".join(errors))
     write_text(plan_path, content)
+    write_json(
+        scoped_paths.card,
+        {
+            "plan_id": plan_id,
+            "plan_kind": plan_kind,
+            "plan_skill": profile.skill_name,
+            "goal_summary": goal_summary,
+            "plan_essence": essence["plan_essence"],
+            "decision_focus": essence["decision_focus"],
+            "expected_signal": essence["expected_signal"],
+            "code_checkpoint": code_checkpoint,
+            "code_checkpoint_ref": code_checkpoint_ref,
+        },
+    )
+    write_json(
+        scoped_paths.status,
+        {
+            "plan_id": plan_id,
+            "status": "planned",
+            "generated_at": utc_now(),
+            "parent_plan_id": parent_plan_id,
+        },
+    )
     write_text(
         scoped_paths.plan_prompt,
         "\n".join(
@@ -679,7 +728,7 @@ def create_iterated_plan(
         code_checkpoint_ref=code_checkpoint_ref,
     )
     append_jsonl(
-        paths.logs / "iteration-agent.jsonl",
+        plan_iteration_log_path(paths.root, plan_id),
         {
             "ts": utc_now(),
             "level": "INFO",

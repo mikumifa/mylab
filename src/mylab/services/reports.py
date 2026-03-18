@@ -6,8 +6,12 @@ import re
 from mylab.config import SUMMARY_HEADINGS
 from mylab.logging import logger
 from mylab.services.assets import update_repo_asset, upsert_plan_index_record
-from mylab.storage import append_jsonl, read_text, write_text
-from mylab.storage.plan_layout import plan_paths, relative_to_run
+from mylab.storage import append_jsonl, read_text, write_json, write_text
+from mylab.storage.plan_layout import (
+    plan_iteration_log_path,
+    plan_paths,
+    relative_to_run,
+)
 from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
@@ -99,7 +103,7 @@ def _extract_file_targets(*sections: str) -> list[str]:
             candidate = match.strip().lstrip("./")
             if (
                 not candidate
-                or candidate.startswith(("logs/", "results/", "summaries/", "commands/"))
+                or candidate.startswith(("logs/", "commands/"))
             ):
                 continue
             suffix = Path(candidate).suffix.lower()
@@ -127,7 +131,7 @@ def _fallback_next_iteration(
         return [
             f"基于 {target_text} 补充或调整与当前结论直接相关的代码；如果上一轮 work branch 仍然适合继续，可直接从该分支推进，不必强制从 main 重新切出。",
             "对这些代码改动运行最小必要的实验或验证；只有在确实能推进用户原始目标时才增加新的实验。",
-            "补全文档，更新 result.md、summary.md 和共享资产，记录改了哪些代码、跑了哪些实验、结论如何支撑当前任务。",
+            "补全文档，更新 references/result.md、references/summary.md 和共享资产，记录改了哪些代码、跑了哪些实验、结论如何支撑当前任务。",
         ]
     fallback_target_text = (
         target_text if targets else "the implementation directly tied to the current result"
@@ -135,7 +139,7 @@ def _fallback_next_iteration(
     return [
         f"Update the code directly tied to the current result, focusing on {fallback_target_text}; if the previous work branch is still the right base, continue from it instead of forcing a fresh branch from main.",
         "Run only the smallest experiments or checks needed for those code changes, and add new experiments only when they materially advance the user's goal.",
-        "Finish the documentation by updating result.md, summary.md, and the shared asset with the code changes, validation steps, and the conclusion they support.",
+        "Finish the documentation by updating references/result.md, references/summary.md, and the shared asset with the code changes, validation steps, and the conclusion they support.",
     ]
 
 
@@ -280,12 +284,21 @@ def write_summary(
     summary_path = paths.summary
     write_text(summary_path, summary)
     append_jsonl(
-        run_dir / "logs" / "iteration-agent.jsonl",
+        plan_iteration_log_path(run_dir, plan_id),
         {
             "ts": utc_now(),
             "level": "INFO",
             "event": "summary_written",
             "plan_id": plan_id,
+        },
+    )
+    write_json(
+        paths.status,
+        {
+            "plan_id": plan_id,
+            "status": status,
+            "summary_written_at": utc_now(),
+            "summary_path": relative_to_run(summary_path, run_dir),
         },
     )
     upsert_plan_index_record(

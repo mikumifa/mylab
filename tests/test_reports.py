@@ -51,7 +51,7 @@ class ReportsTest(unittest.TestCase):
                     "",
                     "# Artifacts",
                     "1. plans/plan-001/executor.sh",
-                    "2. plans/plan-001/result.md",
+                    "2. plans/plan-001/references/result.md",
                     "",
                     "# Next Iteration",
                     "1. Compare against the lighter baseline.",
@@ -99,8 +99,8 @@ class ReportsTest(unittest.TestCase):
             "Implemented configurable output root and preserved stdout under the run directory.",
             content,
         )
-        self.assertIn("plans/plan-002/codex.last.md", content)
-        self.assertIn("Finish the documentation by updating result.md, summary.md, and the shared asset", content)
+        self.assertIn("plans/plan-002/references/codex.last.md", content)
+        self.assertIn("Finish the documentation by updating references/result.md, references/summary.md, and the shared asset", content)
         self.assertNotIn("Replace this placeholder", content)
 
     def test_write_summary_generates_structured_next_iteration_from_result_report(self) -> None:
@@ -117,7 +117,7 @@ class ReportsTest(unittest.TestCase):
                     "",
                     "# Artifacts",
                     "1. src/example_lab/train.py",
-                    "2. plans/plan-005/summary.md",
+                    "2. plans/plan-005/references/summary.md",
                 ]
             )
             + "\n",
@@ -137,7 +137,7 @@ class ReportsTest(unittest.TestCase):
         content = summary_path.read_text(encoding="utf-8")
         self.assertIn("focusing on src/example_lab/models/mlp.py, src/example_lab/train.py", content)
         self.assertIn("Run only the smallest experiments or checks needed", content)
-        self.assertIn("Finish the documentation by updating result.md, summary.md, and the shared asset", content)
+        self.assertIn("Finish the documentation by updating references/result.md, references/summary.md, and the shared asset", content)
 
     def test_write_summary_includes_git_delivery_metadata(self) -> None:
         manifest = load_manifest(self.paths.root)
@@ -164,7 +164,7 @@ class ReportsTest(unittest.TestCase):
         self.assertIn("- goal_language: zh", content)
         self.assertIn("- work_branch: mylab/run-001/plan-001", content)
         self.assertIn("- work_commit: abc1234", content)
-        self.assertIn("plans/plan-003/git.md", content)
+        self.assertIn("plans/plan-003/references/git.md", content)
         self.assertIn("git:mylab/run-001/plan-001@abc1234", content)
 
     def test_write_summary_uses_goal_language_for_missing_report(self) -> None:
@@ -201,7 +201,7 @@ class ReportsTest(unittest.TestCase):
                     "1. results/metrics.json",
                     "",
                     "# Artifacts",
-                    "1. plans/plan-006/result.md",
+                    "1. plans/plan-006/references/result.md",
                     "",
                     "# Next Iteration",
                     "1. Compare against the lighter baseline.",

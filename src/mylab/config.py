@@ -8,6 +8,7 @@ RUNS_ENV_VAR = "MYLAB_RUNS_DIR"
 DEFAULT_RUNS_DIR = ".mylab_runs"
 CONFIG_DIR = MYLAB_HOME
 CONFIG_FILE = CONFIG_DIR / "config.toml"
+CURRENT_RUN_FILE = CONFIG_DIR / "current_run.json"
 TELEGRAM_DIR = MYLAB_HOME / "telegram"
 TELEGRAM_STATE_FILE = TELEGRAM_DIR / "state.json"
 TELEGRAM_INBOX_DIR = TELEGRAM_DIR / "inbox"
@@ -35,11 +36,7 @@ RUN_SUBDIRS = (
     "inputs",
     "assets",
     "plans",
-    "prompts",
     "logs",
-    "jobs",
-    "results",
-    "summaries",
     "commands",
     "manifests",
     "queue",
