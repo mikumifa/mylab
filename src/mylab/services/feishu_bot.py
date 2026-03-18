@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from mylab.config import CONFIG_FILE
-from mylab.services.telegram_bot import _read_config, _split_notify_values, write_user_config
+from mylab.services.telegram_bot import (
+    _read_config,
+    _split_notify_values,
+    write_user_config,
+)
 
 FEISHU_WEBHOOK_PREFIXES = (
     "https://open.feishu.cn/open-apis/bot/v2/hook/",
@@ -117,7 +121,9 @@ def load_feishu_settings(config_path: Path | None = None) -> FeishuSettings:
     webhook_url = _default_webhook_url(section, notifications)
     return FeishuSettings(
         webhook_url=webhook_url or None,
-        default_check_command=_clean_optional_text(section.get("default_check_command")),
+        default_check_command=_clean_optional_text(
+            section.get("default_check_command")
+        ),
         bidirectional_control_enabled=_parse_bool(
             section.get("bidirectional_control_enabled"),
             default=False,
@@ -181,9 +187,9 @@ def interactive_feishu_setup(
     settings = load_feishu_settings(target)
 
     print(f"Config file: {target}")
-    default_check_command = input_fn(
-        "Default check command (optional): "
-    ).strip() or (settings.default_check_command or "")
+    default_check_command = input_fn("Default check command (optional): ").strip() or (
+        settings.default_check_command or ""
+    )
     bidirectional_control_enabled = _prompt_yes_no(
         "Enable Feishu bidirectional control?",
         current_value=settings.bidirectional_control_enabled,
@@ -198,7 +204,9 @@ def interactive_feishu_setup(
             or settings.app_id
         )
         if not app_id:
-            raise ValueError("feishu app id is required when bidirectional control is enabled")
+            raise ValueError(
+                "feishu app id is required when bidirectional control is enabled"
+            )
         app_secret = (
             secret_input_fn(
                 f"Feishu app secret [{'*' * 8 if settings.app_secret else 'required'}]: "
@@ -214,11 +222,15 @@ def interactive_feishu_setup(
             or settings.chat_id
         )
         if not chat_id:
-            raise ValueError("feishu chat id is required when bidirectional control is enabled")
+            raise ValueError(
+                "feishu chat id is required when bidirectional control is enabled"
+            )
     webhook_url = settings.webhook_url
     if not webhook_url:
         webhook_url = (
-            input_fn("Feishu webhook url for outgoing notifications (optional): ").strip()
+            input_fn(
+                "Feishu webhook url for outgoing notifications (optional): "
+            ).strip()
             or None
         )
     return configure_feishu_bot(
@@ -232,7 +244,9 @@ def interactive_feishu_setup(
     )
 
 
-def _post_json(url: str, payload: dict[str, object], headers: dict[str, str]) -> dict[str, object]:
+def _post_json(
+    url: str, payload: dict[str, object], headers: dict[str, str]
+) -> dict[str, object]:
     request = urllib.request.Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -276,7 +290,7 @@ def _webhook_send(webhook_url: str, title: str, message: str) -> bool:
     }
     response = _post_json(
         webhook_url,
-        payload,
+        payload,  # type: ignore
         {"Content-Type": "application/json; charset=utf-8"},
     )
     return response.get("code") in {0, "0", None}

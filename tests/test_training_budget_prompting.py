@@ -54,17 +54,17 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
         self.assertIn("All-plan guidance reference:", prompt)
         self.assertNotIn("Draft plan content:", prompt)
         content = plan_path.read_text(encoding="utf-8")
-        self.assertIn('plan_skill: mylab-structure-tuning', content)
-        self.assertIn('plan_essence:', content)
-        self.assertIn('decision_focus:', content)
-        self.assertIn('expected_signal:', content)
-        self.assertIn('code_checkpoint:', content)
-        self.assertIn('code_checkpoint_ref:', content)
-        self.assertIn('all_guidance_ref:', content)
-        self.assertIn('next_guidance_ref:', content)
-        self.assertNotIn('next_iteration_hook:', content)
-        self.assertNotIn('# Referenced Files', content)
-        self.assertIn('Put full design rationale in `references/design.md`', content)
+        self.assertIn("plan_skill: mylab-structure-tuning", content)
+        self.assertIn("plan_essence:", content)
+        self.assertIn("decision_focus:", content)
+        self.assertIn("expected_signal:", content)
+        self.assertIn("code_checkpoint:", content)
+        self.assertIn("code_checkpoint_ref:", content)
+        self.assertIn("all_guidance_ref:", content)
+        self.assertIn("next_guidance_ref:", content)
+        self.assertNotIn("next_iteration_hook:", content)
+        self.assertNotIn("# Referenced Files", content)
+        self.assertIn("Put full design rationale in `references/design.md`", content)
 
     def test_executor_prompt_mentions_no_silent_undertraining(self) -> None:
         scoped_paths = plan_paths(self.paths.root, "plan-001", ensure=True)
@@ -82,10 +82,10 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
                     "code_checkpoint: abc1234",
                     "code_checkpoint_ref: main",
                     "generated_at: 2026-03-17T00:00:00Z",
-                    "goal_summary: \"Train and evaluate the model.\"",
-                    "plan_essence: \"Train and evaluate the model.\"",
-                    "decision_focus: \"Check convergence and compare against baseline.\"",
-                    "expected_signal: \"A comparable train/eval result.\"",
+                    'goal_summary: "Train and evaluate the model."',
+                    'plan_essence: "Train and evaluate the model."',
+                    'decision_focus: "Check convergence and compare against baseline."',
+                    'expected_signal: "A comparable train/eval result."',
                     "entrypoint: plans/plan-001/plan.md",
                     "references_dir: plans/plan-001/references",
                     "---",
@@ -158,7 +158,9 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
         self.assertEqual(profile.skill_name, "mylab-parameter-tuning")
         self.assertEqual(profile.plan_kind, "parameter-tuning")
 
-    def test_iterated_plan_prompt_uses_plan_catalog_instead_of_parent_content(self) -> None:
+    def test_iterated_plan_prompt_uses_plan_catalog_instead_of_parent_content(
+        self,
+    ) -> None:
         create_initial_plan(self.paths, self.manifest)
 
         plan_path = create_iterated_plan(
