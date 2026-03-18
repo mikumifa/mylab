@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mylab.domain import RunManifest
+from mylab.services.assets import repo_asset_path
 from mylab.services.reports import write_summary
 from mylab.storage.plan_layout import plan_paths
 from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
@@ -187,6 +188,44 @@ class ReportsTest(unittest.TestCase):
         content = summary_path.read_text(encoding="utf-8")
         self.assertIn("执行已完成，但没有找到结果报告。", content)
         self.assertIn("先打开 executor 输出并补写结构化结果报告", content)
+
+    def test_write_summary_keeps_repo_asset_as_general_runbook(self) -> None:
+        scoped_paths = plan_paths(self.paths.root, "plan-006", ensure=True)
+        scoped_paths.result.write_text(
+            "\n".join(
+                [
+                    "# Outcome",
+                    "Validation accuracy reached 91.2% after fixing the output root wiring.",
+                    "",
+                    "# Evidence",
+                    "1. results/metrics.json",
+                    "",
+                    "# Artifacts",
+                    "1. plans/plan-006/result.md",
+                    "",
+                    "# Next Iteration",
+                    "1. Compare against the lighter baseline.",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        write_summary(
+            self.paths.root,
+            "plan-006",
+            "completed",
+            "Execution finished. Replace this placeholder with an evidence-based summary.",
+            [f"plans/plan-006/codex.events.jsonl"],
+            [f"plans/plan-006/executor.sh"],
+            ["Inspect the result report and replace this placeholder summary."],
+        )
+
+        asset_content = repo_asset_path(self.paths.root).read_text(encoding="utf-8")
+        self.assertIn("## Stable Notes", asset_content)
+        self.assertNotIn("## Iteration Notes", asset_content)
+        self.assertNotIn("Validation accuracy reached 91.2%", asset_content)
+        self.assertNotIn("Compare against the lighter baseline.", asset_content)
 
 
 if __name__ == "__main__":

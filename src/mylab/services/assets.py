@@ -50,50 +50,17 @@ def _default_stable_notes() -> str:
     )
 
 
-def _split_asset_sections(current: str) -> tuple[str, str]:
+def _extract_stable_notes(current: str) -> str:
     if not current:
-        return _default_stable_notes(), ""
+        return _default_stable_notes()
     stable_marker = "## Stable Notes"
-    iteration_marker = "## Iteration Notes"
-    if stable_marker in current and iteration_marker in current:
+    if stable_marker in current:
         stable_start = current.index(stable_marker) + len(stable_marker)
-        iteration_start = current.index(iteration_marker)
-        stable = (
-            current[stable_start:iteration_start].strip() or _default_stable_notes()
-        )
-        iterations = current[iteration_start + len(iteration_marker) :].strip()
-        return stable, iterations
-    if current.startswith("# Repository Experience Memory"):
-        marker = "\n## "
-        if marker in current:
-            iterations = current[current.index(marker) + 1 :].strip()
-            return _default_stable_notes(), iterations
-    return _default_stable_notes(), current.strip()
-
-
-def render_asset_entry(
-    *,
-    run_id: str,
-    plan_id: str,
-    status: str,
-    outcome: str,
-    evidence: list[str],
-    artifacts: list[str],
-    next_iteration: list[str],
-) -> str:
-    return "\n".join(
-        [
-            f"### {utc_now()} | {run_id} | {plan_id}",
-            f"- status: {status}",
-            f"- outcome: {outcome.strip()}",
-            "- evidence:",
-            *[f"  - {item}" for item in evidence],
-            "- artifacts:",
-            *[f"  - {item}" for item in artifacts],
-            "- next_iteration:",
-            *[f"  - {item}" for item in next_iteration],
-        ]
-    )
+        tail = current[stable_start:]
+        if "\n## " in tail:
+            tail = tail.split("\n## ", 1)[0]
+        return tail.strip() or _default_stable_notes()
+    return _default_stable_notes()
 
 
 def update_repo_asset(
@@ -110,32 +77,19 @@ def update_repo_asset(
     path = repo_asset_path(run_dir)
     logger.info("Updating repository shared asset at {}", path)
     current = load_repo_asset(run_dir)
-    stable_notes, iteration_notes = _split_asset_sections(current)
-    entry = render_asset_entry(
-        run_id=manifest.run_id,
-        plan_id=plan_id,
-        status=status,
-        outcome=outcome,
-        evidence=evidence,
-        artifacts=artifacts,
-        next_iteration=next_iteration,
-    )
-    iterations = [part.strip() for part in (iteration_notes, entry) if part.strip()]
+    stable_notes = _extract_stable_notes(current)
     content = "\n".join(
         [
             "# Repository Shared Asset",
             f"- repo_path: {manifest.repo_path}",
             f"- updated_at: {utc_now()}",
             "",
-            "This file stores reusable repository knowledge across all iterations.",
-            "Keep operational notes, code map hints, pitfalls, and the shortest durable result memory here.",
+            "This file stores reusable repository-level runbook knowledge only.",
+            "Keep stable operating notes, output constraints, code map hints, and recurring pitfalls here.",
+            "Do not store task-specific hypotheses, experiment results, or next-step conclusions in this file.",
             "",
             "## Stable Notes",
             stable_notes.strip(),
-            "",
-            "## Iteration Notes",
-            "",
-            "\n\n".join(iterations).strip() or "(none yet)",
         ]
     )
     write_text(path, content)

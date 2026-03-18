@@ -12,13 +12,6 @@ from mylab.storage.runs import load_manifest
 from mylab.utils import utc_now
 
 
-def should_update_repo_asset(outcome: str, next_iteration: list[str]) -> bool:
-    normalized_outcome = outcome.strip().lower()
-    if "placeholder" in normalized_outcome:
-        return False
-    return not any("placeholder" in item.strip().lower() for item in next_iteration)
-
-
 def render_summary_markdown(
     *,
     run_id: str,
@@ -304,16 +297,15 @@ def write_summary(
         short_summary=outcome,
         artifacts=[relative_to_run(summary_path, run_dir), *artifacts],
     )
-    if should_update_repo_asset(outcome, next_iteration):
-        update_repo_asset(
-            run_dir=run_dir,
-            plan_id=plan_id,
-            status=status,
-            outcome=outcome,
-            evidence=evidence,
-            artifacts=artifacts,
-            next_iteration=next_iteration,
-        )
+    update_repo_asset(
+        run_dir=run_dir,
+        plan_id=plan_id,
+        status=status,
+        outcome=outcome,
+        evidence=evidence,
+        artifacts=artifacts,
+        next_iteration=next_iteration,
+    )
     try:
         from mylab.services.telegram_bot import push_summary_to_telegram
 
