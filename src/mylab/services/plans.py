@@ -154,7 +154,7 @@ def profile_steps(
         return steps
     steps = [
         f"Checkout the source branch and inspect the tracked repository at {repo_path}.",
-        "Implement the current structural idea as the smallest defensible code delta for this round.",
+        "Make whatever implementation change is necessary for the current plan.",
         "Train the changed system while preserving raw logs and intermediate outputs.",
         "Run evaluation that is comparable with the current baseline or parent plan.",
         "Analyze the outcome and record the structural conclusion for this round.",

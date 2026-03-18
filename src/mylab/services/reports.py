@@ -130,7 +130,7 @@ def _fallback_next_iteration(
     if goal_language == "zh":
         return [
             f"基于 {target_text} 补充或调整与当前结论直接相关的代码；如果上一轮 work branch 仍然适合继续，可直接从该分支推进，不必强制从 main 重新切出。",
-            "对这些代码改动运行最小必要的实验或验证；只有在确实能推进用户原始目标时才增加新的实验。",
+            "运行支撑当前 plan 结论所需要的实验或验证；只有在确实能推进用户原始目标时才增加新的实验。",
             "补全文档，更新 references/result.md、references/summary.md 和共享资产，记录改了哪些代码、跑了哪些实验、结论如何支撑当前任务。",
         ]
     fallback_target_text = (
@@ -138,7 +138,7 @@ def _fallback_next_iteration(
     )
     return [
         f"Update the code directly tied to the current result, focusing on {fallback_target_text}; if the previous work branch is still the right base, continue from it instead of forcing a fresh branch from main.",
-        "Run only the smallest experiments or checks needed for those code changes, and add new experiments only when they materially advance the user's goal.",
+        "Run the experiments needed to support the current plan conclusion, and add new experiments only when they materially advance the user's goal.",
         "Finish the documentation by updating references/result.md, references/summary.md, and the shared asset with the code changes, validation steps, and the conclusion they support.",
     ]
 
