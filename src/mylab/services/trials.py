@@ -67,52 +67,21 @@ def next_trial_index(trials_dir: Path) -> int:
     return max(suffixes) + 1
 
 
-def heuristic_questions(goal_text: str) -> list[str]:
-    return [
-        f"What exact hypothesis or claim is this experiment testing: {goal_text[:80]}?",
-        "What baseline, branch, or prior implementation should be compared?",
-        "Which metrics and saved artifacts are required to judge success or failure?",
-    ]
-
-
-def heuristic_steps(repo_path: Path) -> list[str]:
-    return [
-        f"Checkout the source branch and inspect the tracked repository at {repo_path}.",
-        "Implement code and script changes needed for the experiment without hardcoding output paths.",
-        "Run the experiment, preserve raw logs, and collect all intermediate outputs.",
-        "Write a structured summary that states observed results, failures, and next actions.",
-    ]
-
-
-def default_deliverables(trial_id: str) -> list[str]:
-    return [
-        f"Structured execution log for {trial_id}.",
-        f"Result summary for {trial_id}.",
-        f"Patched code and runnable scripts for {trial_id}.",
-    ]
-
-
-def trial_frontmatter_essence(
-    *,
-    profile: TrialSkillProfile,
-    goal_text: str,
-    feedback: str | None,
-) -> dict[str, str]:
-    headline = " ".join(goal_text.strip().split())
-    brief_feedback = " ".join((feedback or "").strip().split())
-    if profile.trial_kind == "parameter-tuning":
-        return {
-            "trial_essence": f"Run a comparable parameter batch for: {headline[:160]}",
-            "decision_focus": brief_feedback[:160]
-            or "Use batch comparison to narrow the next search region.",
-            "expected_signal": "A ranked comparison over parameter combinations for this batch.",
-        }
-    return {
-        "trial_essence": f"Test a structural idea end-to-end for: {headline[:160]}",
-        "decision_focus": brief_feedback[:160]
-        or "Use implementation, training, evaluation, and analysis to decide the next structural move.",
-        "expected_signal": "A structural conclusion for this round grounded in implementation delta, train behavior, eval results, and analysis.",
-    }
+_GOAL_SUMMARY_PLACEHOLDER = (
+    "<Codex: rewrite after choosing this trial's actual scope; summarize what this "
+    "trial will concretely try, not the overall run goal>"
+)
+_TRIAL_ESSENCE_PLACEHOLDER = (
+    "<Codex: rewrite with the actual hypothesis / search region / design move this "
+    "trial is testing>"
+)
+_DECISION_FOCUS_PLACEHOLDER = (
+    "<Codex: rewrite with the key decision this trial should unlock>"
+)
+_EXPECTED_SIGNAL_PLACEHOLDER = (
+    "<Codex: rewrite with the concrete evidence or comparison this trial should "
+    "produce>"
+)
 
 
 def trial_code_checkpoint(manifest: RunManifest) -> tuple[str, str]:
@@ -123,61 +92,45 @@ def trial_code_checkpoint(manifest: RunManifest) -> tuple[str, str]:
     return "unknown", manifest.source_branch
 
 
-def profile_questions(
-    profile: TrialSkillProfile, goal_text: str, feedback: str | None = None
-) -> list[str]:
+def _scaffold_questions(profile: TrialSkillProfile) -> list[str]:
     if profile.trial_kind == "parameter-tuning":
         return [
-            f"Which parameter family or search region matters most for: {goal_text[:80]}?",
-            "How will combinations be generated so the batch is comparable and reproducible?",
-            "Which metric or ranking rule will choose the next search region?",
-        ]
-    context = f"{goal_text} | feedback: {feedback}" if feedback else goal_text
-    return heuristic_questions(context)
-
-
-def profile_steps(
-    profile: TrialSkillProfile, repo_path: Path, feedback: str | None = None
-) -> list[str]:
-    if profile.trial_kind == "parameter-tuning":
-        steps = [
-            f"Inspect the tracked repository at {repo_path} and identify the parameter entrypoints that control this sweep.",
-            "Generate the concrete parameter combinations for this round and save them as reusable run inputs under the current trial directory.",
-            "Run the batch with preserved raw logs and keep every trial output under the run directory.",
-            "Collect the batch results into a comparable table or machine-readable summary.",
-            "Compare and rank the combinations, and state what this batch established in the current round.",
-        ]
-        if feedback:
-            steps.insert(
-                1, f"Apply this tuning feedback when shaping the batch: {feedback}"
-            )
-        return steps
-    steps = [
-        f"Checkout the source branch and inspect the tracked repository at {repo_path}.",
-        "Make whatever implementation change is necessary for the current trial.",
-        "Train the changed system while preserving raw logs and intermediate outputs.",
-        "Run evaluation that is comparable with the current baseline or parent trial.",
-        "Analyze the outcome and record the structural conclusion for this round.",
-    ]
-    if feedback:
-        steps.insert(
-            1,
-            f"Use this feedback to refine the current design idea before implementation: {feedback}",
-        )
-    return steps
-
-
-def profile_deliverables(profile: TrialSkillProfile, trial_id: str) -> list[str]:
-    if profile.trial_kind == "parameter-tuning":
-        return [
-            f"Parameter batch specification for {trial_id}.",
-            f"Collected comparison table or aggregated result artifact for {trial_id}.",
-            f"Ranking conclusion for the current batch of {trial_id}.",
+            "Codex must rewrite this list after identifying the actual parameter family or search region worth testing now.",
+            "Codex must state how combinations will be generated, tracked, and compared in this round.",
+            "Codex must state which ranking rule or decision rule this batch should answer.",
         ]
     return [
-        f"Structural implementation delta and runnable scripts for {trial_id}.",
-        f"Train plus eval evidence bundle for {trial_id}.",
-        f"Design conclusion for the current round of {trial_id}.",
+        "Codex must rewrite this list after identifying the actual hypothesis this round is testing.",
+        "Codex must state the concrete implementation delta versus the current baseline.",
+        "Codex must state which train, eval, and analysis signals will decide whether this idea should continue.",
+    ]
+
+
+def _scaffold_steps(profile: TrialSkillProfile) -> list[str]:
+    if profile.trial_kind == "parameter-tuning":
+        return [
+            "Codex must rewrite these steps into a concrete end-to-end batch plan for this trial instead of leaving a generic sweep outline.",
+            "The rewritten steps should cover search-space definition, batch generation, execution, result aggregation, and ranking in one trial whenever feasible.",
+            "If some work cannot be completed in this trial, Codex must say exactly what blocks it and still maximize completed work in the current round.",
+        ]
+    return [
+        "Codex must rewrite these steps into the actual end-to-end plan for this structural trial instead of leaving a generic stage list.",
+        "The rewritten steps should cover the concrete implementation delta, execution, evaluation, and analysis in one trial whenever feasible.",
+        "If some work cannot be completed in this trial, Codex must say exactly what blocks it and still maximize completed work in the current round.",
+    ]
+
+
+def _scaffold_deliverables(profile: TrialSkillProfile, trial_id: str) -> list[str]:
+    if profile.trial_kind == "parameter-tuning":
+        return [
+            f"Codex must replace this with the actual parameter batch artifacts for {trial_id}.",
+            f"Codex must replace this with the actual aggregated comparison artifacts for {trial_id}.",
+            f"Codex must replace this with the actual ranking conclusion or blocking reason for {trial_id}.",
+        ]
+    return [
+        f"Codex must replace this with the actual implementation delta and runnable entrypoints for {trial_id}.",
+        f"Codex must replace this with the actual train/eval evidence for {trial_id}.",
+        f"Codex must replace this with the actual design conclusion or blocking reason for {trial_id}.",
     ]
 
 
@@ -294,15 +247,12 @@ def render_trial_markdown(
     trial_skill_name: str,
     code_checkpoint: str,
     code_checkpoint_ref: str,
-    essence: dict[str, str],
     goal_text: str,
     questions: list[str],
     steps: list[str],
     deliverables: list[str],
 ) -> str:
     generated_at = utc_now()
-    goal_summary = " ".join(goal_text.strip().split())[:160]
-    escaped_goal_summary = goal_summary.replace('"', "'")
     return f"""---
 trial_id: {trial_id}
 run_id: {run_id}
@@ -313,10 +263,10 @@ source_branch: {source_branch}
 code_checkpoint: {code_checkpoint}
 code_checkpoint_ref: {code_checkpoint_ref}
 generated_at: {generated_at}
-goal_summary: "{escaped_goal_summary}"
-trial_essence: "{essence["trial_essence"].replace('"', "'")}"
-decision_focus: "{essence["decision_focus"].replace('"', "'")}"
-expected_signal: "{essence["expected_signal"].replace('"', "'")}"
+goal_summary: "{_GOAL_SUMMARY_PLACEHOLDER}"
+trial_essence: "{_TRIAL_ESSENCE_PLACEHOLDER}"
+decision_focus: "{_DECISION_FOCUS_PLACEHOLDER}"
+expected_signal: "{_EXPECTED_SIGNAL_PLACEHOLDER}"
 all_guidance_ref: "trials/{trial_id}/references/all-guidance.md"
 next_guidance_ref: "trials/{trial_id}/references/next-guidance.md"
 entrypoint: trials/{trial_id}/trial.md
@@ -332,15 +282,15 @@ references_dir: trials/{trial_id}/references
 - code_checkpoint_ref: {code_checkpoint_ref}
 - trial_kind: {trial_kind}
 - trial_skill: {trial_skill_name}
-- trial_essence: {essence["trial_essence"]}
-- decision_focus: {essence["decision_focus"]}
-- expected_signal: {essence["expected_signal"]}
+- trial_essence: {_TRIAL_ESSENCE_PLACEHOLDER}
+- decision_focus: {_DECISION_FOCUS_PLACEHOLDER}
+- expected_signal: {_EXPECTED_SIGNAL_PLACEHOLDER}
 - generated_at: {generated_at}
 
 # Experiment Goal
 {goal_text.strip()}
 
-Key experiment intent only. Put full design rationale in `references/design.md`.
+This is the run-level goal context, not the finalized summary of this trial. Codex must rewrite the frontmatter and trial body so they describe what this specific trial will actually try.
 
 # Investigation Questions
 {chr(10).join(f"{index}. {item}" for index, item in enumerate(questions, start=1))}
@@ -485,12 +435,6 @@ def create_initial_trial(paths: RunPaths, manifest: RunManifest) -> Path:
         all_guidance=all_guidance or persistent_feedback,
         next_guidance=next_guidance or feedback_context,
     )
-    goal_summary = " ".join(goal_text.strip().split())[:160]
-    essence = trial_frontmatter_essence(
-        profile=profile,
-        goal_text=goal_text,
-        feedback=None,
-    )
     trial_path = scoped_paths.trial
     prompt_path = scoped_paths.trial_prompt
     content = render_trial_markdown(
@@ -502,11 +446,10 @@ def create_initial_trial(paths: RunPaths, manifest: RunManifest) -> Path:
         trial_skill_name=profile.skill_name,
         code_checkpoint=code_checkpoint,
         code_checkpoint_ref=code_checkpoint_ref,
-        essence=essence,
         goal_text=goal_text,
-        questions=profile_questions(profile, goal_text),
-        steps=profile_steps(profile, Path(manifest.repo_path)),
-        deliverables=profile_deliverables(profile, trial_id),
+        questions=_scaffold_questions(profile),
+        steps=_scaffold_steps(profile),
+        deliverables=_scaffold_deliverables(profile, trial_id),
     )
     errors = validate_trial_markdown(content)
     if errors:
@@ -518,10 +461,10 @@ def create_initial_trial(paths: RunPaths, manifest: RunManifest) -> Path:
             "trial_id": trial_id,
             "trial_kind": trial_kind,
             "trial_skill": profile.skill_name,
-            "goal_summary": goal_summary,
-            "trial_essence": essence["trial_essence"],
-            "decision_focus": essence["decision_focus"],
-            "expected_signal": essence["expected_signal"],
+            "goal_summary": "",
+            "trial_essence": "",
+            "decision_focus": "",
+            "expected_signal": "",
             "code_checkpoint": code_checkpoint,
             "code_checkpoint_ref": code_checkpoint_ref,
         },
@@ -546,12 +489,16 @@ def create_initial_trial(paths: RunPaths, manifest: RunManifest) -> Path:
                 f"Trial kind: {trial_kind}",
                 f"Trial skill: {profile.skill_name}",
                 f"Code checkpoint: {code_checkpoint} ({code_checkpoint_ref})",
+                "Rewrite goal_summary, trial_essence, decision_focus, and expected_signal yourself based on what this trial will actually do after reading the repo, prior trial catalog, shared asset, and current guidance.",
+                "Do not mechanically restate the overall run goal in goal_summary or trial_essence. Those fields must describe this trial's actual attempted move.",
+                "Replace any scaffold bullets that say Codex must rewrite them. Do not leave generic stage language behind.",
                 "If a repository shared asset is present, inherit its stable notes and avoid repeating known failures.",
                 "Do not weaken the experiment by silently changing the training budget defined by the trial, repository, or user input.",
                 "If you propose early stopping or a faster proxy, make sure the trial says how comparability is preserved and which budget source remains authoritative.",
                 f"Write user-facing planning text in {output_language} to match the original goal language.",
                 "The trial file uses a three-layer layout: YAML frontmatter first, markdown body second, referenced files third.",
                 "Keep the frontmatter focused on the reusable essence of this trial, not only identifiers.",
+                "Maximize the amount of meaningful work one trial can complete. Prefer an end-to-end trial that finishes the decisive implementation, execution, comparison, and analysis loop whenever feasible instead of splitting obvious work into tiny rounds.",
                 "Follow the selected skill's flow, frontmatter emphasis, body rules, and reference-file contract.",
                 "Use the trial directory's `references/` files when you need the deeper context.",
                 "Read referenced files directly when you need them; do not wait for this prompt to inline their contents.",
@@ -576,10 +523,10 @@ def create_initial_trial(paths: RunPaths, manifest: RunManifest) -> Path:
         status="planned",
         short_summary=goal_text.splitlines()[0],
         artifacts=[relative_to_run(trial_path, paths.root)],
-        goal_summary=goal_summary,
-        trial_essence=essence["trial_essence"],
-        decision_focus=essence["decision_focus"],
-        expected_signal=essence["expected_signal"],
+        goal_summary="",
+        trial_essence="",
+        decision_focus="",
+        expected_signal="",
         code_checkpoint=code_checkpoint,
         code_checkpoint_ref=code_checkpoint_ref,
     )
@@ -627,12 +574,6 @@ def create_iterated_trial(
         all_guidance=all_guidance or persistent_feedback,
         next_guidance=next_guidance or feedback_context,
     )
-    goal_summary = " ".join(goal_text.strip().split())[:160]
-    essence = trial_frontmatter_essence(
-        profile=profile,
-        goal_text=goal_text,
-        feedback=feedback,
-    )
     content = render_trial_markdown(
         trial_id=trial_id,
         run_id=manifest.run_id,
@@ -642,11 +583,10 @@ def create_iterated_trial(
         trial_skill_name=profile.skill_name,
         code_checkpoint=code_checkpoint,
         code_checkpoint_ref=code_checkpoint_ref,
-        essence=essence,
         goal_text=goal_text,
-        questions=profile_questions(profile, goal_text, feedback),
-        steps=profile_steps(profile, Path(manifest.repo_path), feedback),
-        deliverables=profile_deliverables(profile, trial_id),
+        questions=_scaffold_questions(profile),
+        steps=_scaffold_steps(profile),
+        deliverables=_scaffold_deliverables(profile, trial_id),
     )
     errors = validate_trial_markdown(content)
     if errors:
@@ -658,10 +598,10 @@ def create_iterated_trial(
             "trial_id": trial_id,
             "trial_kind": trial_kind,
             "trial_skill": profile.skill_name,
-            "goal_summary": goal_summary,
-            "trial_essence": essence["trial_essence"],
-            "decision_focus": essence["decision_focus"],
-            "expected_signal": essence["expected_signal"],
+            "goal_summary": "",
+            "trial_essence": "",
+            "decision_focus": "",
+            "expected_signal": "",
             "code_checkpoint": code_checkpoint,
             "code_checkpoint_ref": code_checkpoint_ref,
         },
@@ -688,11 +628,15 @@ def create_iterated_trial(
                 f"Trial kind: {trial_kind}",
                 f"Trial skill: {profile.skill_name}",
                 f"Code checkpoint: {code_checkpoint} ({code_checkpoint_ref})",
+                "Rewrite goal_summary, trial_essence, decision_focus, and expected_signal yourself based on what this trial will actually do after reading the repo, trial catalog, shared asset, and current guidance.",
+                "Do not mechanically restate the overall run goal or feedback. Those fields must describe this trial's actual attempted move and decision target.",
+                "Replace any scaffold bullets that say Codex must rewrite them. Do not leave generic stage language behind.",
                 "Do not weaken the experiment by silently changing the training budget defined by the trial, repository, or user input.",
                 "If you propose early stopping or a faster proxy, make sure the trial says how comparability is preserved and which budget source remains authoritative.",
                 f"Write user-facing planning text in {output_language} to match the original goal language.",
                 "The trial file uses a three-layer layout: YAML frontmatter first, markdown body second, referenced files third.",
                 "Keep the frontmatter focused on the reusable essence of this trial, not only identifiers.",
+                "Maximize the amount of meaningful work one trial can complete. Prefer an end-to-end trial that finishes the decisive implementation, execution, comparison, and analysis loop whenever feasible instead of splitting obvious work into tiny rounds.",
                 "Follow the selected skill's flow, frontmatter emphasis, body rules, and reference-file contract.",
                 "Use the trial directory's `references/` files when you need the deeper context.",
                 "Read referenced files directly when you need them; do not wait for this prompt to inline their contents.",
@@ -724,10 +668,10 @@ def create_iterated_trial(
             relative_to_run(parent_trial_path, paths.root),
             relative_to_run(trial_path, paths.root),
         ],
-        goal_summary=goal_summary,
-        trial_essence=essence["trial_essence"],
-        decision_focus=essence["decision_focus"],
-        expected_signal=essence["expected_signal"],
+        goal_summary="",
+        trial_essence="",
+        decision_focus="",
+        expected_signal="",
         code_checkpoint=code_checkpoint,
         code_checkpoint_ref=code_checkpoint_ref,
     )

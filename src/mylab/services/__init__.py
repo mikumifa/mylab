@@ -40,9 +40,6 @@ from .trials import (
     bootstrap_run,
     create_initial_trial,
     create_iterated_trial,
-    default_deliverables,
-    heuristic_questions,
-    heuristic_steps,
     make_run_id,
 )
 from .reports import render_summary_markdown, validate_summary_markdown, write_summary
@@ -59,11 +56,8 @@ __all__ = [
     "configure_feishu_bot",
     "create_initial_trial",
     "create_iterated_trial",
-    "default_deliverables",
     "format_repo_report",
     "format_telegram_notification_message",
-    "heuristic_questions",
-    "heuristic_steps",
     "interactive_feishu_setup",
     "is_feishu_notify_url",
     "is_telegram_notify_url",

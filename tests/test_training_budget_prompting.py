@@ -62,10 +62,22 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
         self.assertIn("code_checkpoint_ref:", content)
         self.assertIn("all_guidance_ref:", content)
         self.assertIn("next_guidance_ref:", content)
+        self.assertIn("Codex must rewrite", content)
         self.assertNotIn("next_iteration_hook:", content)
         self.assertNotIn("# Referenced Files", content)
-        self.assertIn("Put full design rationale in `references/design.md`", content)
+        self.assertIn(
+            "not the finalized summary of this trial",
+            content,
+        )
         self.assertIn("# Human Review", content)
+        self.assertIn(
+            "Do not mechanically restate the overall run goal",
+            prompt,
+        )
+        self.assertIn(
+            "Maximize the amount of meaningful work one trial can complete",
+            prompt,
+        )
 
     def test_executor_prompt_mentions_no_silent_undertraining(self) -> None:
         scoped_paths = trial_paths(self.paths.root, "trial-001", ensure=True)
@@ -152,6 +164,18 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
             "authoritative training budget source, the actual executed budget",
             prompt,
         )
+        self.assertIn(
+            "rewrite trial.md first so it accurately describes what this trial will actually try",
+            prompt.lower(),
+        )
+        self.assertIn(
+            "goal_summary and trial_essence must describe this trial's actual attempted move",
+            prompt.lower(),
+        )
+        self.assertIn(
+            "maximize meaningful progress per trial",
+            prompt.lower(),
+        )
         self.assertIn("This waits for up to one hour by default", prompt)
         self.assertIn("Repository shared asset reference:", prompt)
         self.assertIn("Trial skill reference:", prompt)
@@ -181,6 +205,14 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
         )
         self.assertIn("Trial catalog reference:", prompt)
         self.assertIn("Trial file reference:", prompt)
+        self.assertIn(
+            "Do not mechanically restate the overall run goal or feedback",
+            prompt,
+        )
+        self.assertIn(
+            "Maximize the amount of meaningful work one trial can complete",
+            prompt,
+        )
         self.assertNotIn("Existing trial catalog:", prompt)
         self.assertNotIn("Parent trial content:", prompt)
         self.assertNotIn("Parent trial: ", prompt)

@@ -24,7 +24,7 @@ def executor_prompt(run_dir: Path, trial_id: str) -> str:
     return "\n".join(
         [
             f"You are the iteration agent executing {trial_id}.",
-            "Read the current trial definition, implement the required code and script changes, and keep all outputs under the provided run directory.",
+            "Read the current trial definition, rewrite any scaffolded trial content into an accurate trial plan if needed, then implement the required code and script changes and keep all outputs under the provided run directory.",
             f"Repository root: {manifest.repo_path}",
             f"Run directory: {run_dir}",
             f"Trial file: {trial_path}",
@@ -51,6 +51,9 @@ def executor_prompt(run_dir: Path, trial_id: str) -> str:
             f"13. Write the result report and concise user-facing summary in {describe_language(manifest.goal_language)} to match the original goal language.",
             "14. Use the current trial's `references/` files when the trial body points to deeper context; do not wait for the prompt to enumerate every path.",
             "15. Read referenced files directly when you need them; this prompt intentionally avoids inlining large file contents.",
+            "16. If goal_summary, trial_essence, decision_focus, expected_signal, or other trial sections still contain scaffold language, rewrite trial.md first so it accurately describes what this trial will actually try.",
+            "17. goal_summary and trial_essence must describe this trial's actual attempted move, not merely restate the overall run goal.",
+            "18. Maximize meaningful progress per trial. Prefer finishing the decisive implementation, execution, comparison, and analysis loop in one trial whenever feasible instead of splitting obvious work into many tiny rounds.",
             "",
             f"Repository shared asset reference: {repo_asset_path(run_dir)}",
             f"All-trial guidance reference: {paths.references / 'all-guidance.md'}",
