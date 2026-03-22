@@ -232,3 +232,57 @@ class JobCleanupOnExitTest(unittest.TestCase):
         self.assertFalse(unfinished.root.exists())
         self.assertEqual(load_queue(self.paths.root).tasks, [])
         self.assertIsNone(root_module.load_manifest(self.paths.root).latest_trial_id)
+
+    def test_main_sends_notification_when_command_errors(self) -> None:
+        original_require = root_module.require_selected_run_dir
+        original_logging = root_module.configure_logging
+        original_preflight = root_module.print_codex_preflight
+        original_resolve = root_module.resolve_flow_control
+        original_runner = root_module.SerialFlowRunner
+        original_terminate = root_module.terminate_all_jobs
+        original_notifier = root_module.NotificationClient
+        original_load_settings = root_module.load_notification_settings
+        sent: list[tuple[str, str, str]] = []
+
+        class FakeNotifier:
+            def __init__(self, run_dir: Path, settings) -> None:
+                self.run_dir = run_dir
+
+            def notify(self, title: str, body: str, *, notify_type: str = "info") -> bool:
+                sent.append((title, body, notify_type))
+                return True
+
+        class FailingRunner:
+            def __init__(self, run_dir: Path, allow_exec: bool, *, mode: str) -> None:
+                return None
+
+            def run_until_blocked(self, limit: int | None) -> list[dict[str, str]]:
+                raise RuntimeError("boom")
+
+        try:
+            root_module.require_selected_run_dir = lambda: self.paths.root
+            root_module.configure_logging = lambda log_dir: None
+            root_module.print_codex_preflight = lambda model: None
+            root_module.resolve_flow_control = lambda **kwargs: ("unlimit", None)
+            root_module.SerialFlowRunner = FailingRunner
+            root_module.terminate_all_jobs = lambda run_dir: []
+            root_module.NotificationClient = FakeNotifier
+            root_module.load_notification_settings = lambda run_dir: object()
+
+            exit_code = root_module.main(["start"])
+        finally:
+            root_module.require_selected_run_dir = original_require
+            root_module.configure_logging = original_logging
+            root_module.print_codex_preflight = original_preflight
+            root_module.resolve_flow_control = original_resolve
+            root_module.SerialFlowRunner = original_runner
+            root_module.terminate_all_jobs = original_terminate
+            root_module.NotificationClient = original_notifier
+            root_module.load_notification_settings = original_load_settings
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0][0], "mylab command failed: start")
+        self.assertIn("run=run", sent[0][1])
+        self.assertIn("error=boom", sent[0][1])
+        self.assertEqual(sent[0][2], "failure")

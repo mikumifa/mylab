@@ -1124,6 +1124,23 @@ def restore_branch_after_interrupt(run_dir: Path) -> None:
         logger.exception("Failed to delete unfinished trial after Ctrl+C")
 
 
+def notify_error_exit(run_dir: Path | None, *, command_label: str, error: Exception) -> None:
+    if run_dir is None:
+        return
+    manifest_path = run_dir / "manifests" / "run.json"
+    if not manifest_path.exists():
+        return
+    try:
+        notifier = NotificationClient(run_dir, load_notification_settings(run_dir))
+        notifier.notify(
+            f"mylab command failed: {command_label}",
+            f"run={run_dir.name}\nerror={error}",
+            notify_type="failure",
+        )
+    except Exception:
+        logger.exception("Failed to send error-exit notification")
+
+
 def cmd_write_summary(args: argparse.Namespace) -> int:
     configure_logging(args.run_dir.expanduser().resolve() / "logs")
     print(
@@ -1311,5 +1328,10 @@ def main(argv: list[str] | None = None) -> int:
         emit_progress("[interrupt]", "received Ctrl+C", "exiting gracefully", color="yellow")
         return 130
     except (RuntimeError, ValueError) as exc:
+        notify_error_exit(
+            interrupt_run_dir,
+            command_label=getattr(args, "command", "unknown"),
+            error=exc,
+        )
         emit_progress("[error]", str(exc), color="red")
         return 1
