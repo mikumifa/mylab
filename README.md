@@ -1,6 +1,6 @@
 # MyLab
 
-![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Linux](https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black)
 ![CLI](https://img.shields.io/badge/interface-CLI-2F855A?logo=gnubash&logoColor=white)
 ![Codex](https://img.shields.io/badge/agent-Codex-111111)
@@ -33,6 +33,12 @@ MyLab 是一个专为**科研实验**设计的基于Codex的Agent框架。
 ```bash
 pip install -e .
 ```
+
+### Publish to PyPI
+
+GitHub Actions 提供了基于 tag/release 的 PyPI 发布流程，见 `.github/workflows/publish.yml`。
+
+发布前需要在 PyPI 项目里把这个 GitHub 仓库配置为 Trusted Publisher，然后创建一个 GitHub Release；工作流会自动构建并发布当前版本。
 
 ### Start a Run
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import mimetypes
 import time
-import tomllib
 import urllib.parse
 import urllib.request
 from html import escape as html_escape
@@ -18,6 +17,7 @@ from mylab.config import (
     TELEGRAM_INBOX_FILE,
     TELEGRAM_STATE_FILE,
 )
+from mylab._toml import tomllib
 from mylab.logging import logger
 from mylab.storage import append_jsonl, ensure_dir, read_json, write_json, write_text
 from mylab.storage.trial_layout import trial_paths

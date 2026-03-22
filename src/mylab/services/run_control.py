@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import tomllib
 
 from mylab.config import CONFIG_FILE
+from mylab._toml import tomllib
 
 
 FLOW_MODE_LIMIT = "limit"

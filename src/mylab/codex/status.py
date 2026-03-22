@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+from mylab._toml import tomllib
 
 
 @dataclass

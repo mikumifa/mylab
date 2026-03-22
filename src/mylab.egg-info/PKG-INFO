@@ -2,12 +2,23 @@ Metadata-Version: 2.4
 Name: mylab
 Version: 0.1.0
 Summary: Codex-based experiment orchestration CLI for research labs
-Requires-Python: >=3.13
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: apprise>=1.9.0
 Requires-Dist: loguru>=0.7.2
+Requires-Dist: tomli>=2.0.1; python_version < "3.11"
 
 # MyLab
+
+![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Linux](https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black)
+![CLI](https://img.shields.io/badge/interface-CLI-2F855A?logo=gnubash&logoColor=white)
+![Codex](https://img.shields.io/badge/agent-Codex-111111)
 
 MyLab 是一个专为**科研实验**设计的基于Codex的Agent框架。
 
@@ -20,8 +31,8 @@ MyLab 是一个专为**科研实验**设计的基于Codex的Agent框架。
 
 - MyLab 不只执行一次命令，而是围绕同一个目标持续实验、沉淀总结，再进入下一轮试错
 - 每一轮都会将关键信息沉淀为一个**Trial**，包括 trial 定义、总结、结果、执行脚本和结构化日志，能让经验一直留存下来
-- 会持续积累“实验怎么跑、哪些方法有效、哪些坑已经踩过”，让后续MyLab能直接站在前一轮经验上继续探索
-- 人可以从这些稳定产物中快速看到 MyLab 到底试了什么、为什么失败、下一个优化方向到哪里，选择最重要的Trial经验给 AI
+- 会持续积累“实验怎么跑、哪些方法有效、哪些坑已经踩过”，后续的MyLab会根据当前的目标，从所有历史 **Trial** 中“选择性地”提取最相关的经验
+- 人可以从这些 **Trial** 中快速看到 MyLab 到底试了什么、为什么失败、下一个优化方向到哪里，保留有价值的 **Trial** 作为基石，删除无用的 **Trial** 以剔除噪音，或者直接在 **Trial** 文件中写下你的点评
 
 
 
@@ -37,6 +48,12 @@ MyLab 是一个专为**科研实验**设计的基于Codex的Agent框架。
 ```bash
 pip install -e .
 ```
+
+### Publish to PyPI
+
+GitHub Actions 提供了基于 tag/release 的 PyPI 发布流程，见 `.github/workflows/publish.yml`。
+
+发布前需要在 PyPI 项目里把这个 GitHub 仓库配置为 Trusted Publisher，然后创建一个 GitHub Release；工作流会自动构建并发布当前版本。
 
 ### Start a Run
 

@@ -3,10 +3,18 @@ name = "mylab"
 version = "0.1.0"
 description = "Codex-based experiment orchestration CLI for research labs"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
     "apprise>=1.9.0",
     "loguru>=0.7.2",
+    "tomli>=2.0.1; python_version < '3.11'",
 ]
 
 [project.scripts]

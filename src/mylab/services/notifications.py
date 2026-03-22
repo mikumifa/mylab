@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import tomllib
 from typing import Any
 
 from mylab.config import CONFIG_FILE
 from mylab.logging import logger
+from mylab._toml import tomllib
 from mylab.services.feishu_bot import (
     is_feishu_notify_url,
     load_feishu_settings,
