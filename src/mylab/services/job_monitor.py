@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -210,3 +211,54 @@ def tail_job(
     status["stdout_tail"] = _tail_text(Path(status["stdout_path"]), lines)
     status["stderr_tail"] = _tail_text(Path(status["stderr_path"]), lines)
     return status
+
+
+def list_running_jobs(run_dir: Path, trial_id: str) -> list[str]:
+    running: list[str] = []
+    for path in sorted(trial_paths(run_dir, trial_id).jobs.glob("*.json")):
+        record = read_json(path)
+        job_id = str(record.get("job_id", path.stem))
+        status = get_job_status(run_dir, job_id)
+        if status.get("status") == "running":
+            running.append(job_id)
+    return running
+
+
+def _job_record_paths(run_dir: Path) -> list[Path]:
+    return sorted(run_dir.glob("trials/*/jobs/*.json"))
+
+
+def _terminate_job_record(record: dict[str, Any]) -> bool:
+    pid = int(record.get("pid", 0) or 0)
+    if pid <= 0 or not _pid_is_alive(pid):
+        return False
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return False
+    except Exception:
+        os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        if not _pid_is_alive(pid):
+            _persist_terminal_status(record, "terminated", -signal.SIGTERM)
+            return True
+        time.sleep(0.1)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        _persist_terminal_status(record, "terminated", -signal.SIGTERM)
+        return True
+    except Exception:
+        os.kill(pid, signal.SIGKILL)
+    _persist_terminal_status(record, "killed", -signal.SIGKILL)
+    return True
+
+
+def terminate_all_jobs(run_dir: Path) -> list[str]:
+    terminated: list[str] = []
+    for path in _job_record_paths(run_dir):
+        record = read_json(path)
+        if _terminate_job_record(record):
+            terminated.append(str(record.get("job_id", path.stem)))
+    return terminated

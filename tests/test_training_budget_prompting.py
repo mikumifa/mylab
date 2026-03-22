@@ -155,6 +155,14 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
         self.assertIn("timer is disabled by default", prompt.lower())
         self.assertIn("--enable-timer", prompt)
         self.assertIn(
+            "must not end this trial while any mylab job monitor job started by this trial is still running",
+            prompt.lower(),
+        )
+        self.assertIn(
+            "before finishing, wait for every current-trial job to reach a terminal state",
+            prompt.lower(),
+        )
+        self.assertIn(
             "do not inspect mylab source code or invent alternate entrypoints",
             prompt.lower(),
         )

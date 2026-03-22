@@ -44,6 +44,7 @@ from mylab.services import (
     start_job,
     tail_job,
     telegram_notifications_enabled,
+    terminate_all_jobs,
     wait_for_job,
     write_sample_config,
     write_summary,
@@ -720,11 +721,17 @@ def cmd_poll_run(args: argparse.Namespace) -> int:
         limit=args.limit,
         prompt_if_missing=True,
     )
-    outputs = SerialFlowRunner(
-        run_dir,
-        allow_exec=args.allow_exec,
-        mode=mode,
-    ).run_until_blocked(limit=limit)
+    try:
+        outputs = SerialFlowRunner(
+            run_dir,
+            allow_exec=args.allow_exec,
+            mode=mode,
+        ).run_until_blocked(limit=limit)
+    finally:
+        terminated = terminate_all_jobs(run_dir)
+        if terminated:
+            logger.info("Terminated mylab job monitor jobs on poll-run exit: {}", ", ".join(terminated))
+            emit_progress("[jobs]", "terminated", ", ".join(terminated), color="yellow")
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
     return 0
@@ -770,11 +777,17 @@ def cmd_start(args: argparse.Namespace) -> int:
         limit=args.limit,
         prompt_if_missing=True,
     )
-    outputs = SerialFlowRunner(
-        run_dir,
-        allow_exec=True,
-        mode=mode,
-    ).run_until_blocked(limit=limit)
+    try:
+        outputs = SerialFlowRunner(
+            run_dir,
+            allow_exec=True,
+            mode=mode,
+        ).run_until_blocked(limit=limit)
+    finally:
+        terminated = terminate_all_jobs(run_dir)
+        if terminated:
+            logger.info("Terminated mylab job monitor jobs on start exit: {}", ", ".join(terminated))
+            emit_progress("[jobs]", "terminated", ", ".join(terminated), color="yellow")
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
     return 0
@@ -969,6 +982,10 @@ def cmd_run_executor(args: argparse.Namespace) -> int:
     try:
         print(run_executor(run_dir, trial_id, args.model, args.full_auto))
     finally:
+        terminated = terminate_all_jobs(run_dir)
+        if terminated:
+            logger.info("Terminated mylab job monitor jobs on run-executor exit: {}", ", ".join(terminated))
+            emit_progress("[jobs]", "terminated", ", ".join(terminated), color="yellow")
         manifest = load_manifest(run_dir)
         if manifest.work_branch and manifest.original_branch:
             restore_original_branch(run_dir, manifest)
@@ -1025,6 +1042,18 @@ def cmd_tail_job(args: argparse.Namespace) -> int:
 
 
 def restore_branch_after_interrupt(run_dir: Path) -> None:
+    try:
+        terminated = terminate_all_jobs(run_dir)
+        if terminated:
+            logger.info("Terminated mylab job monitor jobs after Ctrl+C: {}", ", ".join(terminated))
+            emit_progress(
+                "[jobs]",
+                "terminated",
+                ", ".join(terminated),
+                color="yellow",
+            )
+    except Exception:
+        logger.exception("Failed to terminate mylab job monitor jobs after Ctrl+C")
     try:
         manifest = load_manifest(run_dir)
     except Exception:

@@ -60,11 +60,13 @@ class ExecutorNotificationTest(unittest.TestCase):
         original_runner = executor_module.CodexRunner
         original_notifier = executor_module.NotificationClient
         original_load_settings = executor_module.load_notification_settings
+        original_running_jobs = executor_module.list_running_jobs
         fake_notifier = FakeNotifier(self.paths.root, object())
         try:
             executor_module.CodexRunner = lambda: FakeCodexRunner()
             executor_module.NotificationClient = lambda run_dir, settings: fake_notifier
             executor_module.load_notification_settings = lambda run_dir: object()
+            executor_module.list_running_jobs = lambda run_dir, trial_id: []
 
             output = executor_module.run_executor(
                 self.paths.root,
@@ -76,6 +78,7 @@ class ExecutorNotificationTest(unittest.TestCase):
             executor_module.CodexRunner = original_runner
             executor_module.NotificationClient = original_notifier
             executor_module.load_notification_settings = original_load_settings
+            executor_module.list_running_jobs = original_running_jobs
 
         self.assertEqual(output, trial_paths(self.paths.root, "trial-001").codex_last)
         self.assertEqual(
@@ -85,6 +88,33 @@ class ExecutorNotificationTest(unittest.TestCase):
                 ("trial-001", "second update"),
             ],
         )
+
+    def test_run_executor_fails_when_trial_jobs_are_still_running(self) -> None:
+        original_runner = executor_module.CodexRunner
+        original_notifier = executor_module.NotificationClient
+        original_load_settings = executor_module.load_notification_settings
+        original_running_jobs = executor_module.list_running_jobs
+        try:
+            executor_module.CodexRunner = lambda: FakeCodexRunner()
+            executor_module.NotificationClient = lambda run_dir, settings: FakeNotifier(run_dir, settings)
+            executor_module.load_notification_settings = lambda run_dir: object()
+            executor_module.list_running_jobs = lambda run_dir, trial_id: ["trial-001-train-xyz"]
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "current trial still has running mylab job monitor jobs: trial-001-train-xyz",
+            ):
+                executor_module.run_executor(
+                    self.paths.root,
+                    "trial-001",
+                    model=None,
+                    full_auto=False,
+                )
+        finally:
+            executor_module.CodexRunner = original_runner
+            executor_module.NotificationClient = original_notifier
+            executor_module.load_notification_settings = original_load_settings
+            executor_module.list_running_jobs = original_running_jobs
 
 
 if __name__ == "__main__":

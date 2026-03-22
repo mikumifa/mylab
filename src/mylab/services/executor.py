@@ -5,6 +5,7 @@ from pathlib import Path
 from mylab.codex import CodexExecSpec, CodexRunner
 from mylab.logging import logger
 from mylab.services.assets import repo_asset_path
+from mylab.services.job_monitor import list_running_jobs
 from mylab.services.notifications import NotificationClient, load_notification_settings
 from mylab.services.trials import training_budget_rule_lines
 from mylab.storage import append_jsonl, write_json, write_text
@@ -54,6 +55,8 @@ def executor_prompt(run_dir: Path, trial_id: str) -> str:
             "16. If goal_summary, trial_essence, decision_focus, expected_signal, or other trial sections still contain scaffold language, rewrite trial.md first so it accurately describes what this trial will actually try.",
             "17. goal_summary and trial_essence must describe this trial's actual attempted move, not merely restate the overall run goal.",
             "18. Maximize meaningful progress per trial. Prefer finishing the decisive implementation, execution, comparison, and analysis loop in one trial whenever feasible instead of splitting obvious work into many tiny rounds.",
+            "19. You must not end this trial while any mylab job monitor job started by this trial is still running.",
+            "20. Before finishing, wait for every current-trial job to reach a terminal state. If a job is still running, keep polling with `mylab tool wait-job` instead of exiting the trial or moving on to another trial.",
             "",
             f"Repository shared asset reference: {repo_asset_path(run_dir)}",
             f"All-trial guidance reference: {paths.references / 'all-guidance.md'}",
@@ -154,6 +157,12 @@ def run_executor(
         notifier.notify_agent_message(trial_id, message)
 
     CodexRunner().run(spec, on_event=on_event)
+    running_jobs = list_running_jobs(run_dir, trial_id)
+    if running_jobs:
+        raise RuntimeError(
+            "current trial still has running mylab job monitor jobs: "
+            + ", ".join(running_jobs)
+        )
     append_jsonl(
         trial_iteration_log_path(run_dir, trial_id),
         {

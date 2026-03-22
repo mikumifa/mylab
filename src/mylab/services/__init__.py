@@ -10,7 +10,9 @@ from .feishu_bot import (
     send_feishu_test_message,
 )
 from .job_monitor import (
+    list_running_jobs,
     tail_job,
+    terminate_all_jobs,
     wait_for_job,
     start_job,
     DEFAULT_JOB_WAIT_SECONDS,
@@ -88,9 +90,11 @@ __all__ = [
     "load_telegram_settings",
     "configure_telegram_bot",
     "interactive_telegram_setup",
+    "list_running_jobs",
     "start_job",
     "wait_for_job",
     "tail_job",
+    "terminate_all_jobs",
     "DEFAULT_JOB_WAIT_SECONDS",
     "FLOW_MODE_LIMIT",
     "FLOW_MODE_STEP",

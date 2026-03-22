@@ -97,6 +97,23 @@ class InterruptHandlingTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 130)
 
+    def test_restore_branch_after_interrupt_terminates_jobs_first(self) -> None:
+        calls: list[tuple[str, Path]] = []
+        original_terminate = root_module.terminate_all_jobs
+        original_restore = root_module.restore_original_branch
+        try:
+            root_module.terminate_all_jobs = lambda run_dir: calls.append(("terminate", run_dir)) or []
+            root_module.restore_original_branch = lambda run_dir, manifest: calls.append(("restore", run_dir)) or "main"
+            root_module.restore_branch_after_interrupt(self.paths.root)
+        finally:
+            root_module.terminate_all_jobs = original_terminate
+            root_module.restore_original_branch = original_restore
+
+        self.assertEqual(
+            calls,
+            [("terminate", self.paths.root), ("restore", self.paths.root)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
