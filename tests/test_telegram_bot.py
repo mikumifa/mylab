@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import mylab.services.telegram_bot as telegram_bot
+from mylab.domain import RunManifest
 from mylab.services.telegram_bot import (
     format_telegram_notification_message,
     TelegramBotClient,
@@ -19,6 +20,7 @@ from mylab.services.telegram_bot import (
     load_telegram_settings,
     push_summary_to_telegram,
 )
+from mylab.storage.runs import init_run_dirs, save_manifest
 from mylab.storage.trial_layout import trial_paths
 
 
@@ -59,14 +61,20 @@ class TelegramBotTest(unittest.TestCase):
         self.original_state = telegram_bot.TELEGRAM_STATE_FILE
         self.original_inbox = telegram_bot.TELEGRAM_INBOX_FILE
         self.original_file_dir = telegram_bot.TELEGRAM_FILE_DIR
+        self.original_current_run = telegram_bot.CURRENT_RUN_FILE
+        self.original_runs_root = telegram_bot.runs_root
         telegram_bot.TELEGRAM_STATE_FILE = self.root / "state.json"
         telegram_bot.TELEGRAM_INBOX_FILE = self.root / "inbox" / "messages.jsonl"
         telegram_bot.TELEGRAM_FILE_DIR = self.root / "inbox" / "files"
+        telegram_bot.CURRENT_RUN_FILE = self.root / "current_run.json"
+        telegram_bot.runs_root = lambda: self.root / "runs"
 
     def tearDown(self) -> None:
         telegram_bot.TELEGRAM_STATE_FILE = self.original_state
         telegram_bot.TELEGRAM_INBOX_FILE = self.original_inbox
         telegram_bot.TELEGRAM_FILE_DIR = self.original_file_dir
+        telegram_bot.CURRENT_RUN_FILE = self.original_current_run
+        telegram_bot.runs_root = self.original_runs_root
         self.temp_dir.cleanup()
 
     def test_load_telegram_settings_from_config(self) -> None:
@@ -258,6 +266,94 @@ class TelegramBotTest(unittest.TestCase):
                     None,
                 ),
                 (42, "File saved: 13-notes.txt", None),
+            ],
+        )
+
+    def test_commands_accept_bot_mentions(self) -> None:
+        updates = [
+            {
+                "update_id": 1,
+                "message": {"message_id": 9, "chat": {"id": 42}, "text": "/help@mylab_bot"},
+            },
+            {
+                "update_id": 2,
+                "message": {
+                    "message_id": 10,
+                    "chat": {"id": 42},
+                    "text": "/next@mylab_bot compare against the previous baseline",
+                },
+            },
+        ]
+        bot = FakeTelegramBot(
+            TelegramSettings(bot_token="123:abc", allowed_chat_ids=[42]),
+            updates,
+        )
+
+        processed = bot.poll_once()
+
+        self.assertEqual(processed, 2)
+        inbox_lines = telegram_bot.TELEGRAM_INBOX_FILE.read_text(
+            encoding="utf-8"
+        ).splitlines()
+        records = [json.loads(line) for line in inbox_lines]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["kind"], "text")
+        self.assertEqual(records[0]["scope"], "next")
+        self.assertEqual(records[0]["text"], "compare against the previous baseline")
+        self.assertEqual(
+            bot.sent_messages,
+            [
+                (
+                    42,
+                    "Supported commands: /test, /on, /off, /continue, /next <text>, /all <text>, /mode [unlimit|step|limit <count>]",
+                    None,
+                ),
+                (
+                    42,
+                    "Next guidance saved. It will be injected into the next trial only.",
+                    None,
+                ),
+            ],
+        )
+
+    def test_mode_command_updates_active_run_execution_control(self) -> None:
+        run_paths = init_run_dirs((self.root / "runs") / "run-001")
+        save_manifest(
+            run_paths,
+            RunManifest(
+                run_id="run-001",
+                repo_path=str(self.root / "repo"),
+                source_branch="main",
+                goal_file=str(self.root / "goal.txt"),
+                runs_env_var="MYLAB_RUNS_DIR",
+            ),
+        )
+        telegram_bot.CURRENT_RUN_FILE.write_text('{"run": "run-001"}\n', encoding="utf-8")
+        updates = [
+            {
+                "update_id": 1,
+                "message": {"message_id": 9, "chat": {"id": 42}, "text": "/mode limit 3"},
+            }
+        ]
+        bot = FakeTelegramBot(
+            TelegramSettings(bot_token="123:abc", allowed_chat_ids=[42]),
+            updates,
+        )
+
+        processed = bot.poll_once()
+
+        self.assertEqual(processed, 1)
+        manifest = telegram_bot.load_manifest(run_paths.root)
+        self.assertEqual(manifest.resident_execution_mode, "limit")
+        self.assertEqual(manifest.resident_execution_limit, 3)
+        self.assertEqual(
+            bot.sent_messages,
+            [
+                (
+                    42,
+                    "Resident execution mode for run-001 set to limit 3. The process will stay resident after the batch stops.",
+                    None,
+                )
             ],
         )
 

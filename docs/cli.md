@@ -16,6 +16,12 @@ mylab start --repo /path/to/repo --goal "reproduce table 1"
 mylab start --repo /path/to/repo --goal ./goal.md --run run_xx
 ```
 
+在当前仓库启动 resident run。这个模式会常驻等待，不会在启动时自动执行任何任务；后续完全由 Telegram 指令、后台反馈或 stdin 指令触发：
+
+```bash
+mylab start --goal "reproduce table 1" --mode resident
+```
+
 恢复一个已有 run：
 
 ```bash

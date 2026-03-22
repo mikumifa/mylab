@@ -47,6 +47,8 @@ GitHub Actions 提供了基于 tag/release 的 PyPI 发布流程，见 `.github/
 mylab start --repo /path/to/repo --goal "reproduce table 1" --mode unlimit
 # 给 run 指定名字
 mylab start --repo /path/to/repo --goal ./goal.md --run run_xx --mode unlimit
+# 在当前仓库启动 resident run；先常驻等待，不自动执行，后续靠 Telegram 或 stdin 指令推进
+mylab start --goal "reproduce table 1" --mode resident
 # 恢复一个已有 run
 mylab start --run run_xx --mode unlimit
 ```

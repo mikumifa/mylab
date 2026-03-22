@@ -12,6 +12,8 @@ import mylab.flow.serial as serial_module
 from mylab.domain import QueueState, RunManifest, TaskRecord
 from mylab.flow.serial import SerialFlowRunner
 from mylab.orchestrator.queue import save_queue
+from mylab.storage import write_text
+from mylab.storage.trial_layout import trial_paths
 from mylab.storage.runs import init_run_dirs, save_manifest
 
 
@@ -113,6 +115,39 @@ class InterruptHandlingTest(unittest.TestCase):
             calls,
             [("terminate", self.paths.root), ("restore", self.paths.root)],
         )
+
+    def test_restore_branch_after_interrupt_deletes_unfinished_latest_trial(self) -> None:
+        scoped = trial_paths(self.paths.root, "trial-001", ensure=True)
+        write_text(scoped.trial, "# trial 001")
+        manifest = root_module.load_manifest(self.paths.root)
+        manifest.latest_trial_id = "trial-001"
+        save_manifest(self.paths, manifest)
+        save_queue(
+            self.paths.root,
+            QueueState(
+                tasks=[
+                    TaskRecord(
+                        task_id="task-0001",
+                        kind="run_executor",
+                        status="pending",
+                        created_at="2026-03-22T00:00:00Z",
+                        payload={"trial_id": "trial-001"},
+                    )
+                ]
+            ),
+        )
+        original_terminate = root_module.terminate_all_jobs
+        original_restore = root_module.restore_original_branch
+        try:
+            root_module.terminate_all_jobs = lambda run_dir: []
+            root_module.restore_original_branch = lambda run_dir, manifest: "main"
+            root_module.restore_branch_after_interrupt(self.paths.root)
+        finally:
+            root_module.terminate_all_jobs = original_terminate
+            root_module.restore_original_branch = original_restore
+
+        self.assertFalse(scoped.root.exists())
+        self.assertIsNone(root_module.load_manifest(self.paths.root).latest_trial_id)
 
 
 if __name__ == "__main__":

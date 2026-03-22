@@ -13,19 +13,43 @@ from typing import Any
 
 from mylab.config import (
     CONFIG_FILE,
+    CURRENT_RUN_FILE,
     TELEGRAM_FILE_DIR,
     TELEGRAM_INBOX_FILE,
     TELEGRAM_STATE_FILE,
 )
 from mylab._toml import tomllib
 from mylab.logging import logger
+from mylab.services.run_control import (
+    FLOW_MODE_LIMIT,
+    FLOW_MODE_STEP,
+    FLOW_MODE_UNLIMIT,
+    normalize_flow_mode,
+)
 from mylab.storage import append_jsonl, ensure_dir, read_json, write_json, write_text
 from mylab.storage.trial_layout import trial_paths
-from mylab.storage.runs import load_manifest
+from mylab.storage.io import runs_root
+from mylab.storage.runs import init_run_dirs, load_manifest, save_manifest
 from mylab.utils import utc_now
 
 NEXT_SCOPE = "next"
 ALL_SCOPE = "all"
+
+
+def _parse_telegram_command(text: str) -> tuple[str, str] | None:
+    stripped = text.strip()
+    if not stripped.startswith("/"):
+        return None
+    head, _, tail = stripped.partition(" ")
+    command = head[1:]
+    if not command:
+        return None
+    if "@" in command:
+        command, _bot_name = command.split("@", 1)
+    normalized = command.strip().lower()
+    if not normalized:
+        return None
+    return normalized, tail.strip()
 
 
 def _read_config(config_path: Path | None = None) -> dict[str, object]:
@@ -322,6 +346,61 @@ def _sanitize_filename(name: str) -> str:
     )
 
 
+def _active_run_dir() -> Path | None:
+    if not CURRENT_RUN_FILE.exists():
+        return None
+    payload = read_json(CURRENT_RUN_FILE)
+    run_name = payload.get("run")
+    if not isinstance(run_name, str) or not run_name.strip():
+        return None
+    run_dir = runs_root() / run_name.strip()
+    if not (run_dir / "manifests" / "run.json").exists():
+        return None
+    return run_dir
+
+
+def _set_active_run_execution_control(mode_text: str) -> str:
+    run_dir = _active_run_dir()
+    if run_dir is None:
+        return "No active run is selected. Use `mylab run use <name>` first."
+    raw = mode_text.strip()
+    if not raw:
+        manifest = load_manifest(run_dir)
+        mode = manifest.resident_execution_mode
+        if mode == FLOW_MODE_LIMIT:
+            return (
+                f"Resident execution mode for {run_dir.name}: limit {manifest.resident_execution_limit or 1}"
+            )
+        return f"Resident execution mode for {run_dir.name}: {mode}"
+    parts = raw.split()
+    mode = normalize_flow_mode(parts[0])
+    if mode not in {FLOW_MODE_UNLIMIT, FLOW_MODE_STEP, FLOW_MODE_LIMIT}:
+        return "Usage: /mode unlimit | /mode step | /mode limit <count>"
+    limit: int | None = None
+    if mode == FLOW_MODE_LIMIT:
+        if len(parts) < 2:
+            return "Usage: /mode limit <count>"
+        try:
+            limit = int(parts[1])
+        except ValueError:
+            return "Usage: /mode limit <count>"
+        if limit <= 0:
+            return "Limit count must be a positive integer."
+    manifest = load_manifest(run_dir)
+    manifest.resident_execution_mode = mode
+    manifest.resident_execution_limit = limit if mode == FLOW_MODE_LIMIT else None
+    save_manifest(init_run_dirs(run_dir), manifest)
+    if mode == FLOW_MODE_LIMIT:
+        return (
+            f"Resident execution mode for {run_dir.name} set to limit {limit}. "
+            "The process will stay resident after the batch stops."
+        )
+    return (
+        f"Resident execution mode for {run_dir.name} set to {mode}. "
+        "The process will stay resident after each stop."
+    )
+
+
 def load_feedback_context(limit: int | None = None) -> str:
     return render_feedback_context(limit=limit, scopes={NEXT_SCOPE, ALL_SCOPE})
 
@@ -562,12 +641,16 @@ class TelegramBotClient:
     def _handle_help(self, chat_id: int) -> None:
         self.send_message(
             chat_id,
-            "Supported commands: /test, /on, /off, /continue, /next <text>, /all <text>",
+            "Supported commands: /test, /on, /off, /continue, /next <text>, /all <text>, /mode [unlimit|step|limit <count>]",
         )
 
     def _handle_command(self, chat_id: int, text: str, message_id: int) -> None:
-        lowered = text.strip().lower()
-        if lowered == "/test":
+        parsed = _parse_telegram_command(text)
+        if not parsed:
+            self._handle_help(chat_id)
+            return
+        command, argument = parsed
+        if command == "test" and not argument:
             self.send_message(chat_id, "mylab telegram bot ok.")
             self._record_inbox(
                 {
@@ -578,7 +661,7 @@ class TelegramBotClient:
                 }
             )
             return
-        if lowered == "/on":
+        if command == "on" and not argument:
             self.state["notifications_enabled"] = True
             save_telegram_state(self.state)
             self.send_message(chat_id, "mylab notifications enabled.")
@@ -586,7 +669,7 @@ class TelegramBotClient:
                 {"ts": utc_now(), "kind": "command", "chat_id": chat_id, "text": "/on"}
             )
             return
-        if lowered == "/off":
+        if command == "off" and not argument:
             self.state["notifications_enabled"] = False
             save_telegram_state(self.state)
             self.send_message(chat_id, "mylab notifications paused.")
@@ -594,10 +677,21 @@ class TelegramBotClient:
                 {"ts": utc_now(), "kind": "command", "chat_id": chat_id, "text": "/off"}
             )
             return
-        if lowered == "/help":
+        if command == "help" and not argument:
             self._handle_help(chat_id)
             return
-        if lowered == "/continue":
+        if command == "mode":
+            self.send_message(chat_id, _set_active_run_execution_control(argument))
+            self._record_inbox(
+                {
+                    "ts": utc_now(),
+                    "kind": "command",
+                    "chat_id": chat_id,
+                    "text": f"/mode {argument}".strip(),
+                }
+            )
+            return
+        if command == "continue" and not argument:
             self._save_text_feedback(
                 chat_id,
                 "Continue to the next full iteration based on the latest trial, "
@@ -611,25 +705,21 @@ class TelegramBotClient:
                 "Queued the next iteration using the latest run context.",
             )
             return
-        if text.startswith("/next ") or text.startswith("/step "):
-            prefix = "/next " if text.startswith("/next ") else "/step "
-            payload = text[len(prefix) :].strip()
-            if not payload:
+        if command in {"next", "step"}:
+            if not argument:
                 self.send_message(chat_id, "Usage: /next <instruction>")
                 return
-            self._save_text_feedback(chat_id, payload, message_id, scope=NEXT_SCOPE)
+            self._save_text_feedback(chat_id, argument, message_id, scope=NEXT_SCOPE)
             self.send_message(
                 chat_id,
                 "Next guidance saved. It will be injected into the next trial only.",
             )
             return
-        if text.startswith("/all ") or text.startswith("/run "):
-            prefix = "/all " if text.startswith("/all ") else "/run "
-            payload = text[len(prefix) :].strip()
-            if not payload:
+        if command in {"all", "run"}:
+            if not argument:
                 self.send_message(chat_id, "Usage: /all <guidance>")
                 return
-            self._save_text_feedback(chat_id, payload, message_id, scope=ALL_SCOPE)
+            self._save_text_feedback(chat_id, argument, message_id, scope=ALL_SCOPE)
             self.send_message(
                 chat_id,
                 "All-trial guidance saved. It will be carried into future trials.",

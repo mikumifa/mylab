@@ -15,6 +15,7 @@ from mylab.flow.serial import SerialFlowRunner
 from mylab.orchestrator.queue import save_queue
 from mylab.services.run_control import (
     FLOW_MODE_LIMIT,
+    FLOW_MODE_RESIDENT,
     FLOW_MODE_STEP,
     FLOW_MODE_UNLIMIT,
     load_run_control_settings,
@@ -38,11 +39,35 @@ class FakeSerialFlowRunner(SerialFlowRunner):
     def _log_run_overview(self, queue: QueueState) -> None:
         return None
 
+    def _start_background_telegram_poller(self, settings=None) -> None:
+        return None
+
+    def _stop_background_telegram_poller(self) -> None:
+        return None
+
     def _dispatch(self, task: TaskRecord) -> str:
         return f"done:{task.task_id}"
 
     def _enqueue_followups(self, queue: QueueState, task: TaskRecord) -> None:
         return None
+
+
+class PollerAwareRunner(FakeSerialFlowRunner):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.poller_started = False
+        self.poller_stopped = False
+
+    def _start_background_telegram_poller(self, settings=None) -> None:
+        self.poller_started = True
+
+    def _stop_background_telegram_poller(self) -> None:
+        self.poller_stopped = True
+
+    def _dispatch(self, task: TaskRecord) -> str:
+        if not self.poller_started:
+            raise AssertionError("telegram poller should be active during task dispatch")
+        return super()._dispatch(task)
 
 
 class FlowModeTest(unittest.TestCase):
@@ -194,6 +219,11 @@ class FlowModeTest(unittest.TestCase):
 
         self.assertEqual(mode, FLOW_MODE_UNLIMIT)
         self.assertIn("default=unlimit", prompts[0])
+
+    def test_prompt_for_flow_mode_accepts_resident(self) -> None:
+        mode = prompt_for_flow_mode(input_fn=lambda _prompt: "4")
+
+        self.assertEqual(mode, FLOW_MODE_RESIDENT)
 
     def test_step_mode_queues_next_iteration_after_feedback(self) -> None:
         save_manifest(
@@ -407,6 +437,124 @@ class FlowModeTest(unittest.TestCase):
         self.assertIn(
             "Continue to the next full iteration",
             queue.tasks[0].payload["feedback"],
+        )
+
+    def test_run_until_blocked_wraps_execution_with_telegram_background_poller(self) -> None:
+        save_queue(
+            self.paths.root,
+            QueueState(tasks=[make_restore_task(1)]),
+        )
+        runner = PollerAwareRunner(
+            self.paths.root,
+            allow_exec=False,
+            mode=FLOW_MODE_LIMIT,
+        )
+
+        outputs = runner.run_until_blocked(limit=1)
+
+        self.assertEqual([item["task_id"] for item in outputs], ["task-0001"])
+        self.assertTrue(runner.poller_started)
+        self.assertTrue(runner.poller_stopped)
+
+    def test_resident_mode_waits_for_instruction_before_running_pending_tasks(self) -> None:
+        save_queue(
+            self.paths.root,
+            QueueState(tasks=[make_restore_task(1)]),
+        )
+        runner = FakeSerialFlowRunner(
+            self.paths.root,
+            allow_exec=False,
+            mode=FLOW_MODE_RESIDENT,
+        )
+        runner._wait_for_resident_feedback = lambda has_trial: None
+        original_load = serial_module.load_telegram_settings
+        original_consume = serial_module.consume_feedback_since
+        try:
+            serial_module.load_telegram_settings = lambda: TelegramSettings(
+                bot_token=None,
+                allowed_chat_ids=[],
+            )
+            serial_module.consume_feedback_since = lambda cursor: (None, cursor)
+            outputs = runner.run_until_blocked(limit=None)
+        finally:
+            serial_module.load_telegram_settings = original_load
+            serial_module.consume_feedback_since = original_consume
+
+        self.assertEqual(outputs, [])
+        queue = serial_module.load_queue(self.paths.root)
+        self.assertEqual(queue.tasks[0].status, "pending")
+
+    def test_resident_mode_uses_instruction_to_start_first_trial(self) -> None:
+        runner = FakeSerialFlowRunner(
+            self.paths.root,
+            allow_exec=False,
+            mode=FLOW_MODE_RESIDENT,
+        )
+        replies = iter(["start from the saved goal", None])
+        runner._wait_for_resident_feedback = lambda has_trial: next(replies)
+        original_load = serial_module.load_telegram_settings
+        original_consume = serial_module.consume_feedback_since
+        try:
+            serial_module.load_telegram_settings = lambda: TelegramSettings(
+                bot_token=None,
+                allowed_chat_ids=[],
+            )
+            serial_module.consume_feedback_since = lambda cursor: (None, cursor)
+            outputs = runner.run_until_blocked(limit=None)
+        finally:
+            serial_module.load_telegram_settings = original_load
+            serial_module.consume_feedback_since = original_consume
+
+        self.assertEqual(
+            [(item["task_id"], item["kind"]) for item in outputs],
+            [("task-0001", "format_repo"), ("task-0002", "create_plan")],
+        )
+
+    def test_resident_limit_mode_stops_to_idle_instead_of_exiting(self) -> None:
+        save_manifest(
+            self.paths,
+            RunManifest(
+                run_id="run-001",
+                repo_path=str(self.root / "repo"),
+                source_branch="main",
+                goal_file=str(self.paths.inputs / "goal.txt"),
+                runs_env_var="MYLAB_RUNS_DIR",
+                latest_trial_id="trial-001",
+                resident_execution_mode=FLOW_MODE_LIMIT,
+                resident_execution_limit=1,
+            ),
+        )
+        queue = QueueState(tasks=[make_restore_task(1)])
+        serial_module.save_queue(self.paths.root, queue)
+        runner = FakeSerialFlowRunner(
+            self.paths.root,
+            allow_exec=False,
+            mode=FLOW_MODE_RESIDENT,
+        )
+        replies = iter([None])
+        runner._wait_for_resident_feedback = lambda has_trial: next(replies)
+        original_load = serial_module.load_telegram_settings
+        original_consume = serial_module.consume_feedback_since
+        try:
+            serial_module.load_telegram_settings = lambda: TelegramSettings(
+                bot_token=None,
+                allowed_chat_ids=[],
+            )
+            consume_calls = iter(
+                [
+                    ("resume current queue", 1),
+                    (None, 1),
+                ]
+            )
+            serial_module.consume_feedback_since = lambda cursor: next(consume_calls)
+            outputs = runner.run_until_blocked(limit=None)
+        finally:
+            serial_module.load_telegram_settings = original_load
+            serial_module.consume_feedback_since = original_consume
+
+        self.assertEqual(
+            [(item["task_id"], item["kind"]) for item in outputs],
+            [("task-0001", "restore_branch")],
         )
 
 

@@ -21,6 +21,7 @@ from mylab.orchestrator import (
 from mylab.domain import QueueState
 from mylab.services import (
     FLOW_MODE_LIMIT,
+    FLOW_MODE_RESIDENT,
     FLOW_MODE_STEP,
     FLOW_MODE_UNLIMIT,
     NotificationClient,
@@ -176,6 +177,67 @@ def _remove_trial_from_index(run_dir: Path, trial_id: str) -> None:
     )
 
 
+def _remove_trial(run_dir: Path, trial_id: str) -> None:
+    paths = trial_paths(run_dir, trial_id)
+    if not paths.root.exists():
+        raise ValueError(f"trial `{trial_id}` does not exist in run `{run_dir.name}`")
+    _delete_trial_branch_if_present(run_dir, trial_id)
+    _remove_trial_from_queue(run_dir, trial_id)
+    _remove_trial_from_index(run_dir, trial_id)
+    shutil.rmtree(paths.root)
+    manifest = load_manifest(run_dir)
+    if manifest.latest_trial_id == trial_id:
+        remaining = [
+            item.name
+            for item in sorted((run_dir / "trials").iterdir())
+            if item.is_dir() and item.name.startswith("trial-")
+        ]
+        manifest.latest_trial_id = remaining[-1] if remaining else None
+        save_manifest(init_run_dirs(run_dir), manifest)
+
+
+def _latest_unfinished_trial_id(run_dir: Path) -> str | None:
+    manifest = load_manifest(run_dir)
+    trial_id = manifest.latest_trial_id
+    if not trial_id:
+        return None
+    paths = trial_paths(run_dir, trial_id)
+    if not paths.root.exists():
+        return None
+    if not paths.summary.exists():
+        return trial_id
+    return None
+
+
+def _cleanup_unfinished_trial(run_dir: Path) -> str | None:
+    trial_id = _latest_unfinished_trial_id(run_dir)
+    if not trial_id:
+        return None
+    _remove_trial(run_dir, trial_id)
+    return trial_id
+
+
+def _resume_existing_run_if_idle(run_dir: Path, model: str | None) -> None:
+    queue = load_queue(run_dir)
+    if any(task.status in {"pending", "running"} for task in queue.tasks):
+        return
+    _cleanup_unfinished_trial(run_dir)
+    manifest = load_manifest(run_dir)
+    if manifest.latest_trial_id:
+        enqueue_iteration_pipeline(
+            run_dir,
+            manifest.latest_trial_id,
+            (
+                "Continue to the next full iteration based on the latest trial, "
+                "summary, result report, repository shared asset, and preserved "
+                "execution evidence."
+            ),
+            model,
+        )
+        return
+    enqueue_initial_pipeline(run_dir, model)
+
+
 def resolve_goal_input(goal: str | None, lab_md: Path | None) -> tuple[str, str]:
     if goal:
         goal_path = Path(goal).expanduser()
@@ -276,8 +338,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     flow_cmd.add_argument(
         "--mode",
-        choices=[FLOW_MODE_LIMIT, FLOW_MODE_STEP, FLOW_MODE_UNLIMIT],
-        help="Execution mode: limit, step, or unlimit. If omitted in an interactive shell, mylab can prompt for it.",
+        choices=[FLOW_MODE_LIMIT, FLOW_MODE_STEP, FLOW_MODE_UNLIMIT, FLOW_MODE_RESIDENT],
+        help="Execution mode: limit, step, unlimit, or resident. If omitted in an interactive shell, mylab can prompt for it.",
     )
     flow_cmd.add_argument(
         "--limit",
@@ -466,8 +528,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     poll_cmd.add_argument(
         "--mode",
-        choices=[FLOW_MODE_LIMIT, FLOW_MODE_STEP, FLOW_MODE_UNLIMIT],
-        help="Execution mode: limit, step, or unlimit.",
+        choices=[FLOW_MODE_LIMIT, FLOW_MODE_STEP, FLOW_MODE_UNLIMIT, FLOW_MODE_RESIDENT],
+        help="Execution mode: limit, step, unlimit, or resident.",
     )
     poll_cmd.add_argument(
         "--limit",
@@ -738,6 +800,11 @@ def cmd_poll_run(args: argparse.Namespace) -> int:
 
 
 def cmd_start(args: argparse.Namespace) -> int:
+    mode, limit = resolve_flow_control(
+        mode=args.mode,
+        limit=args.limit,
+        prompt_if_missing=True,
+    )
     run_name = args.run
     run_dir = resolve_run_dir_by_name(run_name).expanduser().resolve() if run_name else None
     if run_dir and (run_dir / "manifests" / "run.json").exists():
@@ -745,8 +812,9 @@ def cmd_start(args: argparse.Namespace) -> int:
         configure_logging(run_dir / "logs")
         print_codex_preflight(args.model)
         set_current_run(run_dir.name)
-    elif args.repo and (args.goal or args.lab_md):
-        repo_path = args.repo.expanduser().resolve()
+        _resume_existing_run_if_idle(run_dir, args.model)
+    elif (args.repo or mode == FLOW_MODE_RESIDENT) and (args.goal or args.lab_md):
+        repo_path = (args.repo or Path(".")).expanduser().resolve()
         lab_md = args.lab_md.expanduser().resolve() if args.lab_md else None
         goal_text = lab_input_text(args.goal, lab_md)
         run_id = run_name or make_run_id(goal_text)
@@ -763,7 +831,8 @@ def cmd_start(args: argparse.Namespace) -> int:
         )
         configure_logging(paths.logs)
         print_codex_preflight(args.model)
-        enqueue_initial_pipeline(paths.root, args.model)
+        if mode != FLOW_MODE_RESIDENT:
+            enqueue_initial_pipeline(paths.root, args.model)
         run_dir = paths.root
         set_current_run(run_id)
         logger.info("Initialized run at {}", run_dir)
@@ -772,11 +841,6 @@ def cmd_start(args: argparse.Namespace) -> int:
         init_run_dirs(run_dir)
         configure_logging(run_dir / "logs")
         print_codex_preflight(args.model)
-    mode, limit = resolve_flow_control(
-        mode=args.mode,
-        limit=args.limit,
-        prompt_if_missing=True,
-    )
     try:
         outputs = SerialFlowRunner(
             run_dir,
@@ -788,6 +852,10 @@ def cmd_start(args: argparse.Namespace) -> int:
         if terminated:
             logger.info("Terminated mylab job monitor jobs on start exit: {}", ", ".join(terminated))
             emit_progress("[jobs]", "terminated", ", ".join(terminated), color="yellow")
+        deleted_trial_id = _cleanup_unfinished_trial(run_dir)
+        if deleted_trial_id:
+            logger.info("Deleted unfinished trial on start exit: {}", deleted_trial_id)
+            emit_progress("[trial]", "deleted unfinished", deleted_trial_id, color="yellow")
     for item in outputs:
         print(f"{item['task_id']} {item['kind']} {item['output']}")
     return 0
@@ -872,22 +940,7 @@ def cmd_trial_cat(args: argparse.Namespace) -> int:
 
 def cmd_trial_rm(args: argparse.Namespace) -> int:
     run_dir = _resolve_trial_run_dir(getattr(args, "run", None))
-    paths = trial_paths(run_dir, args.trial_id)
-    if not paths.root.exists():
-        raise ValueError(f"trial `{args.trial_id}` does not exist in run `{run_dir.name}`")
-    _delete_trial_branch_if_present(run_dir, args.trial_id)
-    _remove_trial_from_queue(run_dir, args.trial_id)
-    _remove_trial_from_index(run_dir, args.trial_id)
-    shutil.rmtree(paths.root)
-    manifest = load_manifest(run_dir)
-    if manifest.latest_trial_id == args.trial_id:
-        remaining = [
-            item.name
-            for item in sorted((run_dir / "trials").iterdir())
-            if item.is_dir() and item.name.startswith("trial-")
-        ]
-        manifest.latest_trial_id = remaining[-1] if remaining else None
-        save_manifest(init_run_dirs(run_dir), manifest)
+    _remove_trial(run_dir, args.trial_id)
     print(args.trial_id)
     return 0
 
@@ -1063,6 +1116,12 @@ def restore_branch_after_interrupt(run_dir: Path) -> None:
             restore_original_branch(run_dir, manifest)
         except Exception:
             logger.exception("Failed to restore branch after Ctrl+C")
+    try:
+        deleted_trial_id = _cleanup_unfinished_trial(run_dir)
+        if deleted_trial_id:
+            logger.info("Deleted unfinished trial after Ctrl+C: {}", deleted_trial_id)
+    except Exception:
+        logger.exception("Failed to delete unfinished trial after Ctrl+C")
 
 
 def cmd_write_summary(args: argparse.Namespace) -> int:

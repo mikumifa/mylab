@@ -48,6 +48,7 @@ from .trials import (
 from .reports import render_summary_markdown, validate_summary_markdown, write_summary
 from .run_control import (
     FLOW_MODE_LIMIT,
+    FLOW_MODE_RESIDENT,
     FLOW_MODE_STEP,
     FLOW_MODE_UNLIMIT,
     load_run_control_settings,
@@ -97,6 +98,7 @@ __all__ = [
     "terminate_all_jobs",
     "DEFAULT_JOB_WAIT_SECONDS",
     "FLOW_MODE_LIMIT",
+    "FLOW_MODE_RESIDENT",
     "FLOW_MODE_STEP",
     "FLOW_MODE_UNLIMIT",
     "load_run_control_settings",

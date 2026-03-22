@@ -36,6 +36,8 @@ class RunManifest:
     notify_config_path: str | None = None
     notify_tag: str | None = None
     feedback_cursor: int = 0
+    resident_execution_mode: str = "step"
+    resident_execution_limit: int | None = 1
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
