@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mylab.config import ROOT
 from mylab.logging import logger
+from mylab.skill_assets import skill_dir
 
 
 _JOB_MONITOR_SKILL = """---
@@ -120,7 +120,7 @@ def _write_if_missing(path: Path, content: str) -> bool:
 
 
 def _local_skill_files(skill_name: str) -> dict[Path, str]:
-    source_root = ROOT / ".codex" / "skills" / skill_name
+    source_root = skill_dir(skill_name)
     files: dict[Path, str] = {}
     for path in sorted(source_root.rglob("*")):
         if not path.is_file():

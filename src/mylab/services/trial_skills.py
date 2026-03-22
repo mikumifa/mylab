@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mylab.config import ROOT
+from mylab.skill_assets import skill_dir
 from mylab.storage import read_text
 
 
@@ -20,7 +20,7 @@ class TrialSkillProfile:
 
 
 def _skill_path(skill_name: str) -> Path:
-    return ROOT / ".codex" / "skills" / skill_name / "SKILL.md"
+    return skill_dir(skill_name) / "SKILL.md"
 
 
 def _parse_frontmatter(content: str) -> dict[str, str]:

@@ -46,7 +46,7 @@ MyLab 是一个专为**科研实验**设计的基于Codex的Agent框架。
 ### Install
 
 ```bash
-pip install -e .
+pip install mylab
 ```
 
 ### Publish to PyPI

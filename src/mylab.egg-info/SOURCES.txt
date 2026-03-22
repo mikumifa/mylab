@@ -5,6 +5,7 @@ src/mylab/_toml.py
 src/mylab/cli.py
 src/mylab/config.py
 src/mylab/logging.py
+src/mylab/skill_assets.py
 src/mylab.egg-info/PKG-INFO
 src/mylab.egg-info/SOURCES.txt
 src/mylab.egg-info/dependency_links.txt
@@ -39,6 +40,14 @@ src/mylab/services/run_control.py
 src/mylab/services/telegram_bot.py
 src/mylab/services/trial_skills.py
 src/mylab/services/trials.py
+src/mylab/skills/mylab-parameter-tuning/SKILL.md
+src/mylab/skills/mylab-parameter-tuning/templates/trial.template.md
+src/mylab/skills/mylab-parameter-tuning/templates/references/comparison-schema.template.md
+src/mylab/skills/mylab-parameter-tuning/templates/references/search-space.template.md
+src/mylab/skills/mylab-structure-tuning/SKILL.md
+src/mylab/skills/mylab-structure-tuning/templates/trial.template.md
+src/mylab/skills/mylab-structure-tuning/templates/references/analysis-focus.template.md
+src/mylab/skills/mylab-structure-tuning/templates/references/implementation-delta.template.md
 src/mylab/storage/__init__.py
 src/mylab/storage/io.py
 src/mylab/storage/runs.py
@@ -54,6 +63,7 @@ tests/test_git_preflight.py
 tests/test_interrupt_handling.py
 tests/test_job_monitor.py
 tests/test_notifications.py
+tests/test_packaged_skills.py
 tests/test_reports.py
 tests/test_run_trial_management.py
 tests/test_smoke_mlp.py
