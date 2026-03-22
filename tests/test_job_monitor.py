@@ -123,6 +123,7 @@ class JobMonitorTest(unittest.TestCase):
             started["job_id"],
             wait_seconds=1,
             poll_seconds=1,
+            use_timer=True,
         )
         self.assertEqual(waited["status"], "running")
         time.sleep(3)
@@ -131,6 +132,7 @@ class JobMonitorTest(unittest.TestCase):
             started["job_id"],
             wait_seconds=1,
             poll_seconds=1,
+            use_timer=True,
         )
         self.assertEqual(finished["status"], "completed")
         self.assertEqual(finished["exit_code"], 0)

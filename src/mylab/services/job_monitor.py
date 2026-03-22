@@ -186,6 +186,7 @@ def wait_for_job(
     *,
     wait_seconds: int = DEFAULT_JOB_WAIT_SECONDS,
     poll_seconds: int = DEFAULT_JOB_POLL_SECONDS,
+    use_timer: bool = False,
 ) -> dict[str, Any]:
     started = time.monotonic()
     while True:
@@ -193,7 +194,7 @@ def wait_for_job(
         if status["status"] != "running":
             status["waited_seconds"] = int(time.monotonic() - started)
             return status
-        if time.monotonic() - started >= max(wait_seconds, 0):
+        if use_timer and time.monotonic() - started >= max(wait_seconds, 0):
             status["waited_seconds"] = int(time.monotonic() - started)
             return status
         time.sleep(max(poll_seconds, 1))

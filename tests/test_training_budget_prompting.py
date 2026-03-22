@@ -152,6 +152,8 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
         self.assertIn("mylab tool start-job", prompt)
         self.assertIn("mylab tool wait-job", prompt)
         self.assertIn("keep polling output concise to reduce token usage", prompt)
+        self.assertIn("timer is disabled by default", prompt.lower())
+        self.assertIn("--enable-timer", prompt)
         self.assertIn(
             "do not inspect mylab source code or invent alternate entrypoints",
             prompt.lower(),
@@ -176,7 +178,6 @@ class TrainingBudgetPromptingTest(unittest.TestCase):
             "maximize meaningful progress per trial",
             prompt.lower(),
         )
-        self.assertIn("This waits for up to one hour by default", prompt)
         self.assertIn("Repository shared asset reference:", prompt)
         self.assertIn("Trial skill reference:", prompt)
         self.assertNotIn("Trial content:", prompt)

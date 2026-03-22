@@ -570,7 +570,7 @@ def build_parser() -> argparse.ArgumentParser:
     wait_job_cmd = tool_subparsers.add_parser(
         "wait-job",
         help="Wait for a monitored job to finish.",
-        description="Wait up to the configured window for a monitored job. If the job is still running, returns a concise running status so the caller can poll again later.",
+        description="Wait for a monitored job. By default the timer is disabled and the command blocks until completion; enable the timer only when you want bounded polling.",
         formatter_class=HELP_FORMATTER,
     )
     wait_job_cmd.add_argument(
@@ -578,9 +578,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     wait_job_cmd.add_argument("--job-id", required=True, help="Tracked job id.")
     wait_job_cmd.add_argument(
+        "--enable-timer",
+        action="store_true",
+        help="Enable the wait timer so the command can return early with status=running.",
+    )
+    wait_job_cmd.add_argument(
         "--wait-seconds",
         type=int,
-        help="Maximum seconds to wait before returning. Defaults to the monitor standard window.",
+        help="Maximum seconds to wait before returning when --enable-timer is set.",
     )
     wait_job_cmd.add_argument(
         "--poll-seconds",
@@ -956,7 +961,7 @@ def cmd_start_job(args: argparse.Namespace) -> int:
 def cmd_wait_job(args: argparse.Namespace) -> int:
     run_dir = args.run_dir.expanduser().resolve()
     configure_logging(run_dir / "logs")
-    kwargs: dict[str, int] = {}
+    kwargs: dict[str, int | bool] = {"use_timer": bool(args.enable_timer)}
     if args.wait_seconds is not None:
         kwargs["wait_seconds"] = args.wait_seconds
     if args.poll_seconds is not None:

@@ -87,3 +87,5 @@ mylab trial rm trial-001
 - `mylab tool start-job`
 - `mylab tool wait-job`
 - `mylab tool tail-job`
+
+其中 `mylab tool wait-job` 默认关闭计时器，会一直阻塞到任务完成；只有显式传 `--enable-timer` 时，才会按 `--wait-seconds` 提前返回 `running`。

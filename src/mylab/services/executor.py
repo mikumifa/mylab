@@ -42,7 +42,7 @@ def executor_prompt(run_dir: Path, trial_id: str) -> str:
             "4. Training, deployment, Terraform, and build tasks must default to the mylab job monitor instead of running as direct foreground shell commands, even before you know whether they will take a long time.",
             "5. The documented job-monitor CLI is the default interface. Do not inspect mylab source code or invent alternate entrypoints just to start or poll a job unless the documented CLI actually fails in this run.",
             "6. Start monitored work with `mylab tool start-job --run-dir <run_dir> --trial-id <trial_id> --name <label> --command '<command>'`.",
-            "7. Wait on monitored work with `mylab tool wait-job --run-dir <run_dir> --job-id <job_id>`. This waits for up to one hour by default. If it returns status=running, call it again later instead of switching back to a long foreground shell command.",
+            "7. Wait on monitored work with `mylab tool wait-job --run-dir <run_dir> --job-id <job_id>`. The timer is disabled by default, so this blocks until completion. Only add `--enable-timer` when you explicitly want bounded polling; if it returns status=running, call it again later instead of switching back to a long foreground shell command.",
             "8. Only inspect logs on demand with `mylab tool tail-job --run-dir <run_dir> --job-id <job_id>`. Do not print long log tails on every poll; keep polling output concise to reduce token usage.",
             "9. Keep the final report tied to concrete file paths and observed results.",
             "10. Reuse the repository shared asset when relevant, update it with durable repo knowledge, and avoid known bad paths.",
