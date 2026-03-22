@@ -78,7 +78,7 @@ mylab tool wait-job \\
   --job-id trial-001-train-20260317t175913z
 ```
 
-If the returned status is `running`, call `wait-job` again later. Do not replace it with a direct long-running shell command.
+The timer is disabled by default, so this command blocks until completion. Only add `--enable-timer` when you explicitly want bounded polling. If the timer is enabled and the returned status is `running`, call `wait-job` again later. Do not replace it with a direct long-running shell command.
 
 ## Inspect Logs On Demand
 
