@@ -1,3 +1,4 @@
+from .adapter import adapter_prompt, run_adapter
 from .assets import load_repo_asset, repo_asset_path, update_repo_asset
 from .executor import prepare_executor, run_executor
 from .feishu_bot import (
@@ -52,6 +53,7 @@ from .run_control import (
 )
 
 __all__ = [
+    "adapter_prompt",
     "bootstrap_run",
     "configure_feishu_bot",
     "create_initial_trial",
@@ -73,6 +75,7 @@ __all__ = [
     "telegram_notifications_enabled",
     "render_summary_markdown",
     "run_executor",
+    "run_adapter",
     "TelegramBotClient",
     "parse_notification_chat_ids",
     "send_telegram_notification",

@@ -38,6 +38,7 @@ from mylab.services import (
     prepare_executor,
     prompt_for_flow_mode,
     resolve_notification_settings,
+    run_adapter,
     run_executor,
     send_feishu_test_message,
     start_job,
@@ -281,6 +282,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         help="Iteration count. In limit mode it is the hard cap. In step mode it is the number of iterations to auto-run before per-iteration confirmation.",
+    )
+
+    adapter_cmd = subparsers.add_parser(
+        "adapter",
+        help="Adapt the current repository for direct single-trial execution.",
+        description="Directly modify the current repository so one trial can run without creating a mylab run or switching branches.",
+        formatter_class=HELP_FORMATTER,
+    )
+    adapter_cmd.add_argument(
+        "--repo",
+        type=Path,
+        default=Path("."),
+        help="Repository path to adapt. Defaults to the current directory.",
+    )
+    adapter_group = adapter_cmd.add_mutually_exclusive_group(required=False)
+    adapter_group.add_argument(
+        "--goal",
+        help="Optional adaptation goal, or a file path whose contents should be used.",
+    )
+    adapter_group.add_argument(
+        "--lab-md",
+        type=Path,
+        help="Optional markdown file containing the adaptation goal/spec.",
+    )
+    adapter_cmd.add_argument(
+        "--model",
+        help="Optional Codex model override for the adapter execution.",
     )
 
     run_cmd = subparsers.add_parser(
@@ -752,6 +780,20 @@ def cmd_start(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_adapter(args: argparse.Namespace) -> int:
+    repo_path = args.repo.expanduser().resolve()
+    configure_logging(None)
+    print_codex_preflight(args.model)
+    goal_text = None
+    if args.goal or args.lab_md:
+        goal_text = lab_input_text(
+            args.goal,
+            args.lab_md.expanduser().resolve() if args.lab_md else None,
+        )
+    print(run_adapter(repo_path, goal_text, args.model))
+    return 0
+
+
 def cmd_run_use(args: argparse.Namespace) -> int:
     run_dir = resolve_run_dir_by_name(args.name)
     if not (run_dir / "manifests" / "run.json").exists():
@@ -1122,6 +1164,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     interrupt_run_dir: Path | None = None
     commands = {
+        "adapter": cmd_adapter,
         "start": cmd_start,
         "queue-iteration": cmd_queue_iteration,
     }
